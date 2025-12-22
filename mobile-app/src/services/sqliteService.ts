@@ -47,7 +47,7 @@ class SQLiteService {
     await this.db.open();
 
     // Tabla con todos los campos que definimos
-    // AHORA: id_local autoincremental + id (UUID) único
+    // id_local autoincremental solo local, id (UUID) global para sincronización
     await this.db.execute(`
       CREATE TABLE IF NOT EXISTS registros (
         id_local INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,6 +183,45 @@ class SQLiteService {
       `UPDATE registros SET synced = 1 WHERE id IN (${placeholders})`,
       ids
     );
+  }
+
+  // Buscar el último registro de HOY por placas (para autollenado)
+  async buscarUltimoPorPlacaHoy(placa: string): Promise<RegistroLocal | null> {
+    const db = await this.getDb();
+    const placaUpper = placa.toUpperCase();
+    const res = await db.query(
+      `
+      SELECT *
+      FROM registros
+      WHERE placa = ?
+        AND date(fecha_hora) = date('now')
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1;
+      `,
+      [placaUpper]
+    );
+
+    if (!res.values || res.values.length === 0) return null;
+    return res.values[0] as RegistroLocal;
+  }
+
+  // Preparado por si luego quieres autollenar por QR real
+  async buscarUltimoPorQRHoy(qr: string): Promise<RegistroLocal | null> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `
+      SELECT *
+      FROM registros
+      WHERE qr_contenido = ?
+        AND date(fecha_hora) = date('now')
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1;
+      `,
+      [qr]
+    );
+
+    if (!res.values || res.values.length === 0) return null;
+    return res.values[0] as RegistroLocal;
   }
 }
 

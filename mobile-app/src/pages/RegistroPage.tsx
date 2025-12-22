@@ -16,6 +16,10 @@ import {
   IonSegment,
   IonSegmentButton,
   IonText,
+  IonCard,
+  IonCardHeader,
+  IonCardTitle,
+  IonCardContent,
 } from '@ionic/react';
 import { sqliteService } from '../services/sqliteService';
 import { syncService } from '../services/syncService';
@@ -41,20 +45,17 @@ const RegistroPage: React.FC = () => {
   const [modoCaptura, setModoCaptura] =
     useState<ModoCaptura>('MANUAL');
 
-  // PERSONA A PIE
-  const [idPeaton, setIdPeaton] = useState('');
+  // Datos persona / conductor
   const [nombre, setNombre] = useState('');
   const [noEmpleado, setNoEmpleado] = useState('');
   const [empresa, setEmpresa] = useState('');
   const [bodega, setBodega] = useState('');
   const [asunto, setAsunto] = useState('');
 
-  // VEHÍCULO
-  const [idVehiculo, setIdVehiculo] = useState('');
+  // Datos vehículo
   const [modelo, setModelo] = useState('');
   const [color, setColor] = useState('');
   const [placa, setPlaca] = useState('');
-  // fotoPlacasPath la dejamos para después cuando integremos cámara
 
   const actualizarPendientes = async () => {
     const regs = await sqliteService.obtenerPendientes();
@@ -69,44 +70,33 @@ const RegistroPage: React.FC = () => {
   }, []);
 
   const manejarScanQR = async () => {
-    // Aquí luego integramos el QR real:
-    // - Para empleados de Impulso: llenar nombre, bodega, noEmpleado, etc.
-    // - Para vehículos de empleados: modelo, color, placas, nombre...
-    setMensaje('Escaneo de QR todavía no implementado (placeholder).');
+    // Aquí luego integramos el QR real con plugin
+    setMensaje('Escaneo de QR todavía no implementado (pendiente).');
   };
 
-  const limpiarFormulario = () => {
-    setIdPeaton('');
+  const limpiarCampos = () => {
     setNombre('');
     setNoEmpleado('');
     setEmpresa('');
     setBodega('');
     setAsunto('');
-
-    setIdVehiculo('');
     setModelo('');
     setColor('');
     setPlaca('');
   };
 
   const validar = (): string | null => {
-    // Todos los casos necesitan al menos algo que identifique al registro
-    if (tipoEntidad === 'PEATON') {
-      if (!nombre.trim()) return 'El nombre es obligatorio para peatón.';
-      if (categoria === 'EMPLEADO' && !noEmpleado.trim()) {
-        return 'El número de empleado es obligatorio para empleados.';
-      }
+    if (!nombre.trim()) return 'El nombre es obligatorio.';
+    if (!bodega.trim()) return 'La bodega es obligatoria.';
+    if (!asunto.trim()) return 'El asunto es obligatorio.';
+
+    if (categoria === 'EMPLEADO' && !noEmpleado.trim()) {
+      return 'El número de empleado es obligatorio para empleados.';
     }
 
     if (tipoEntidad === 'VEHICULO') {
       if (!placa.trim()) return 'Las placas del vehículo son obligatorias.';
-      if (!nombre.trim()) {
-        return 'El nombre del conductor/empleado es obligatorio.';
-      }
     }
-
-    if (!bodega.trim()) return 'La bodega es obligatoria.';
-    if (!asunto.trim()) return 'El asunto es obligatorio.';
 
     return null;
   };
@@ -120,7 +110,7 @@ const RegistroPage: React.FC = () => {
 
     const qrContenido =
       modoCaptura === 'QR'
-        ? 'QR_PENDIENTE' // luego se reemplaza con el valor real del QR
+        ? 'QR_PENDIENTE' // luego se reemplaza con el valor real del QR escaneado
         : null;
 
     await sqliteService.insertarRegistro({
@@ -128,19 +118,23 @@ const RegistroPage: React.FC = () => {
       tipoEntidad,
       categoria,
 
-      idPeaton: tipoEntidad === 'PEATON' ? idPeaton.trim() || null : null,
+      // ya no pedimos ID visibles, solo nombre / datos reales
+      idPeaton: null, // lo puedes usar después como ID interno si quieres
       nombre: nombre.trim() || null,
       noEmpleado: noEmpleado.trim() || null,
       empresa: empresa.trim() || null,
       bodega: bodega.trim() || null,
       asunto: asunto.trim() || null,
 
-      idVehiculo: tipoEntidad === 'VEHICULO' ? idVehiculo.trim() || null : null,
-      modelo: tipoEntidad === 'VEHICULO' ? modelo.trim() || null : null,
-      color: tipoEntidad === 'VEHICULO' ? color.trim() || null : null,
-      placa: tipoEntidad === 'VEHICULO'
-        ? placa.trim().toUpperCase()
-        : null,
+      idVehiculo: null, // igual, interno si lo necesitas después
+      modelo:
+        tipoEntidad === 'VEHICULO' ? modelo.trim() || null : null,
+      color:
+        tipoEntidad === 'VEHICULO' ? color.trim() || null : null,
+      placa:
+        tipoEntidad === 'VEHICULO'
+          ? placa.trim().toUpperCase()
+          : null,
       fotoPlacasPath: null, // luego con cámara
 
       qrContenido,
@@ -148,7 +142,7 @@ const RegistroPage: React.FC = () => {
     });
 
     await actualizarPendientes();
-    limpiarFormulario();
+    limpiarCampos();
     setMensaje('Registro guardado localmente (offline).');
   };
 
@@ -171,214 +165,287 @@ const RegistroPage: React.FC = () => {
   const etiquetaEntidad =
     tipoEntidad === 'PEATON' ? 'Peatón' : 'Vehículo';
 
+  // Autollenar cuando se escriben placas y ya existe movimiento hoy
+  const autollenarPorPlaca = async (valor: string) => {
+    const limpia = valor.trim().toUpperCase();
+    if (!limpia) return;
+
+    const ultimo = await sqliteService.buscarUltimoPorPlacaHoy(limpia);
+    if (!ultimo) {
+      // No decimos error, solo no hay datos anteriores
+      return;
+    }
+
+    // Rellenar datos desde el último registro
+    setNombre(ultimo.nombre ?? '');
+    setNoEmpleado(ultimo.noEmpleado ?? '');
+    setEmpresa(ultimo.empresa ?? '');
+    setBodega(ultimo.bodega ?? '');
+    setAsunto(ultimo.asunto ?? '');
+    setModelo(ultimo.modelo ?? '');
+    setColor(ultimo.color ?? '');
+
+    setCategoria(ultimo.categoria);
+  };
+
   return (
     <IonPage>
       <IonHeader>
-        <IonToolbar>
-          <IonTitle>Control de Accesos</IonTitle>
+        <IonToolbar color="primary">
+          <IonTitle style={{ fontSize: '1.2rem', fontWeight: 700 }}>
+            CONTROL DE ACCESOS
+          </IonTitle>
         </IonToolbar>
       </IonHeader>
 
       <IonContent className="ion-padding">
-        <IonList>
-          {/* ENTRADA / SALIDA */}
-          <IonItem>
-            <IonLabel>Tipo de movimiento</IonLabel>
-          </IonItem>
-          <IonItem>
-            <IonSegment
-              value={tipoRegistro}
-              onIonChange={(e) =>
-                setTipoRegistro(e.detail.value as TipoRegistro)
-              }
-            >
-              <IonSegmentButton value="ENTRADA">
-                <IonLabel>Entrada</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="SALIDA">
-                <IonLabel>Salida</IonLabel>
-              </IonSegmentButton>
-            </IonSegment>
-          </IonItem>
-
-          {/* PEATÓN / VEHÍCULO */}
-          <IonItem>
-            <IonLabel>Tipo</IonLabel>
-          </IonItem>
-          <IonItem>
-            <IonSegment
-              value={tipoEntidad}
-              onIonChange={(e) =>
-                setTipoEntidad(e.detail.value as TipoEntidad)
-              }
-            >
-              <IonSegmentButton value="PEATON">
-                <IonLabel>Peatón</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="VEHICULO">
-                <IonLabel>Vehículo</IonLabel>
-              </IonSegmentButton>
-            </IonSegment>
-          </IonItem>
-
-          {/* EMPLEADO / PROVEEDOR / VISITANTE */}
-          <IonItem>
-            <IonLabel>Categoría</IonLabel>
-          </IonItem>
-          <IonItem>
-            <IonSegment
-              value={categoria}
-              onIonChange={(e) =>
-                setCategoria(e.detail.value as CategoriaPersona)
-              }
-            >
-              <IonSegmentButton value="EMPLEADO">
-                <IonLabel>Empleado</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="PROVEEDOR">
-                <IonLabel>Proveedor</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="VISITANTE">
-                <IonLabel>Visitante</IonLabel>
-              </IonSegmentButton>
-            </IonSegment>
-          </IonItem>
-
-          {/* MODO DE CAPTURA */}
-          <IonItem>
-            <IonLabel>Modo de captura</IonLabel>
-          </IonItem>
-          <IonItem>
-            <IonSegment
-              value={modoCaptura}
-              onIonChange={(e) =>
-                setModoCaptura(e.detail.value as ModoCaptura)
-              }
-            >
-              <IonSegmentButton value="QR">
-                <IonLabel>QR</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="MANUAL">
-                <IonLabel>Manual</IonLabel>
-              </IonSegmentButton>
-            </IonSegment>
-          </IonItem>
-
-          {/* Botón de QR */}
-          {modoCaptura === 'QR' && (
-            <IonItem>
-              <IonButton expand="block" onClick={manejarScanQR}>
-                Escanear QR ({etiquetaEntidad})
-              </IonButton>
-            </IonItem>
-          )}
-
-          {/* CAMPOS DE PEATÓN */}
-          {tipoEntidad === 'PEATON' && (
-            <>
+        {/* Tarjeta de selección de tipo */}
+        <IonCard>
+          <IonCardHeader>
+            <IonCardTitle style={{ fontSize: '1.1rem' }}>
+              Tipo de movimiento
+            </IonCardTitle>
+          </IonCardHeader>
+          <IonCardContent>
+            <IonList>
               <IonItem>
-                <IonLabel position="stacked">ID Peatón</IonLabel>
-                <IonInput
-                  value={idPeaton}
-                  onIonChange={(e) => setIdPeaton(e.detail.value ?? '')}
-                  placeholder="ID interno si aplica"
-                />
+                <IonSegment
+                  value={tipoRegistro}
+                  onIonChange={(e) => {
+                    setTipoRegistro(e.detail.value as TipoRegistro);
+                    // no limpiamos todo aquí para no perder datos al cambiar de ENTRADA a SALIDA
+                  }}
+                >
+                  <IonSegmentButton value="ENTRADA">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      ENTRADA
+                    </IonLabel>
+                  </IonSegmentButton>
+                  <IonSegmentButton value="SALIDA">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      SALIDA
+                    </IonLabel>
+                  </IonSegmentButton>
+                </IonSegment>
+              </IonItem>
+
+              <IonItem>
+                <IonLabel>Tipo</IonLabel>
               </IonItem>
               <IonItem>
-                <IonLabel position="stacked">Nombre</IonLabel>
+                <IonSegment
+                  value={tipoEntidad}
+                  onIonChange={(e) => {
+                    setTipoEntidad(e.detail.value as TipoEntidad);
+                    limpiarCampos(); // al cambiar peaton/vehículo limpiamos formulario
+                  }}
+                >
+                  <IonSegmentButton value="PEATON">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      PEATÓN
+                    </IonLabel>
+                  </IonSegmentButton>
+                  <IonSegmentButton value="VEHICULO">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      VEHÍCULO
+                    </IonLabel>
+                  </IonSegmentButton>
+                </IonSegment>
+              </IonItem>
+
+              <IonItem>
+                <IonLabel>Categoría</IonLabel>
+              </IonItem>
+              <IonItem>
+                <IonSegment
+                  value={categoria}
+                  onIonChange={(e) => {
+                    setCategoria(e.detail.value as CategoriaPersona);
+                    limpiarCampos(); // al cambiar entre empleado/proveedor/visitante limpiamos datos
+                  }}
+                >
+                  <IonSegmentButton value="EMPLEADO">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      EMPLEADO
+                    </IonLabel>
+                  </IonSegmentButton>
+                  <IonSegmentButton value="PROVEEDOR">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      PROVEEDOR
+                    </IonLabel>
+                  </IonSegmentButton>
+                  <IonSegmentButton value="VISITANTE">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      VISITANTE
+                    </IonLabel>
+                  </IonSegmentButton>
+                </IonSegment>
+              </IonItem>
+
+              <IonItem>
+                <IonLabel>Modo de captura</IonLabel>
+              </IonItem>
+              <IonItem>
+                <IonSegment
+                  value={modoCaptura}
+                  onIonChange={(e) =>
+                    setModoCaptura(e.detail.value as ModoCaptura)
+                  }
+                >
+                  <IonSegmentButton value="QR">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>QR</IonLabel>
+                  </IonSegmentButton>
+                  <IonSegmentButton value="MANUAL">
+                    <IonLabel style={{ fontSize: '0.9rem' }}>
+                      MANUAL
+                    </IonLabel>
+                  </IonSegmentButton>
+                </IonSegment>
+              </IonItem>
+
+              {modoCaptura === 'QR' && (
+                <IonItem lines="none">
+                  <IonButton
+                    expand="block"
+                    size="large"
+                    onClick={manejarScanQR}
+                  >
+                    ESCANEAR QR ({etiquetaEntidad})
+                  </IonButton>
+                </IonItem>
+              )}
+            </IonList>
+          </IonCardContent>
+        </IonCard>
+
+        {/* Tarjeta de datos principales */}
+        <IonCard>
+          <IonCardHeader>
+            <IonCardTitle style={{ fontSize: '1.1rem' }}>
+              Datos de {etiquetaEntidad.toUpperCase()}
+            </IonCardTitle>
+          </IonCardHeader>
+          <IonCardContent>
+            <IonList>
+              {/* Nombre siempre visible (peatón o vehículo) */}
+              <IonItem>
+                <IonLabel position="stacked">
+                  Nombre (persona / conductor)
+                </IonLabel>
                 <IonInput
+                  style={{ fontSize: '1rem' }}
                   value={nombre}
                   onIonChange={(e) => setNombre(e.detail.value ?? '')}
-                  placeholder="Nombre de la persona"
+                  placeholder="Ej. Juan Pérez"
                 />
               </IonItem>
+
+              {/* No. empleado opcional, obligatorio solo para categoría EMPLEADO */}
               <IonItem>
                 <IonLabel position="stacked">No. Empleado</IonLabel>
                 <IonInput
+                  style={{ fontSize: '1rem' }}
                   value={noEmpleado}
                   onIonChange={(e) => setNoEmpleado(e.detail.value ?? '')}
-                  placeholder="Solo para empleados"
+                  placeholder="Solo si aplica"
                 />
               </IonItem>
-            </>
-          )}
 
-          {/* CAMPOS DE VEHÍCULO */}
-          {tipoEntidad === 'VEHICULO' && (
-            <>
-              <IonItem>
-                <IonLabel position="stacked">ID Vehículo</IonLabel>
-                <IonInput
-                  value={idVehiculo}
-                  onIonChange={(e) => setIdVehiculo(e.detail.value ?? '')}
-                  placeholder="ID interno si aplica"
-                />
-              </IonItem>
-              <IonItem>
-                <IonLabel position="stacked">Modelo</IonLabel>
-                <IonInput
-                  value={modelo}
-                  onIonChange={(e) => setModelo(e.detail.value ?? '')}
-                  placeholder="Modelo del vehículo"
-                />
-              </IonItem>
-              <IonItem>
-                <IonLabel position="stacked">Color</IonLabel>
-                <IonInput
-                  value={color}
-                  onIonChange={(e) => setColor(e.detail.value ?? '')}
-                  placeholder="Color del vehículo"
-                />
-              </IonItem>
-              <IonItem>
-                <IonLabel position="stacked">Placas</IonLabel>
-                <IonInput
-                  value={placa}
-                  onIonChange={(e) => setPlaca(e.detail.value ?? '')}
-                  placeholder="Ej. ABC-1234"
-                />
-              </IonItem>
-            </>
-          )}
+              {tipoEntidad === 'VEHICULO' && (
+                <>
+                  <IonItem>
+                    <IonLabel position="stacked">Placas</IonLabel>
+                    <IonInput
+                      style={{ fontSize: '1rem' }}
+                      value={placa}
+                      onIonChange={(e) => {
+                        const val = e.detail.value ?? '';
+                        setPlaca(val);
+                      }}
+                      onIonBlur={async () => {
+                        // al salir del campo placas, intentamos autollenar
+                        await autollenarPorPlaca(placa);
+                      }}
+                      placeholder="Ej. ABC-1234"
+                    />
+                  </IonItem>
+                  <IonItem>
+                    <IonLabel position="stacked">Modelo</IonLabel>
+                    <IonInput
+                      style={{ fontSize: '1rem' }}
+                      value={modelo}
+                      onIonChange={(e) =>
+                        setModelo(e.detail.value ?? '')
+                      }
+                      placeholder="Modelo del vehículo"
+                    />
+                  </IonItem>
+                  <IonItem>
+                    <IonLabel position="stacked">Color</IonLabel>
+                    <IonInput
+                      style={{ fontSize: '1rem' }}
+                      value={color}
+                      onIonChange={(e) =>
+                        setColor(e.detail.value ?? '')
+                      }
+                      placeholder="Color del vehículo"
+                    />
+                  </IonItem>
+                </>
+              )}
 
-          {/* CAMPOS COMUNES */}
-          <IonItem>
-            <IonLabel position="stacked">Empresa</IonLabel>
-            <IonInput
-              value={empresa}
-              onIonChange={(e) => setEmpresa(e.detail.value ?? '')}
-              placeholder="Impulso, EXPEDITORS, otra..."
-            />
-          </IonItem>
-          <IonItem>
-            <IonLabel position="stacked">Bodega</IonLabel>
-            <IonInput
-              value={bodega}
-              onIonChange={(e) => setBodega(e.detail.value ?? '')}
-              placeholder="Ej. Bodega 1, Almacén A..."
-            />
-          </IonItem>
-          <IonItem>
-            <IonLabel position="stacked">Asunto</IonLabel>
-            <IonInput
-              value={asunto}
-              onIonChange={(e) => setAsunto(e.detail.value ?? '')}
-              placeholder="Motivo de la visita / movimiento"
-            />
-          </IonItem>
-        </IonList>
+              {/* Campos comunes */}
+              <IonItem>
+                <IonLabel position="stacked">Empresa</IonLabel>
+                <IonInput
+                  style={{ fontSize: '1rem' }}
+                  value={empresa}
+                  onIonChange={(e) => setEmpresa(e.detail.value ?? '')}
+                  placeholder="Impulso, EXPEDITORS, otra..."
+                />
+              </IonItem>
+              <IonItem>
+                <IonLabel position="stacked">Bodega</IonLabel>
+                <IonInput
+                  style={{ fontSize: '1rem' }}
+                  value={bodega}
+                  onIonChange={(e) => setBodega(e.detail.value ?? '')}
+                  placeholder="Ej. Bodega 1, Almacén A..."
+                />
+              </IonItem>
+              <IonItem>
+                <IonLabel position="stacked">Asunto</IonLabel>
+                <IonInput
+                  style={{ fontSize: '1rem' }}
+                  value={asunto}
+                  onIonChange={(e) => setAsunto(e.detail.value ?? '')}
+                  placeholder="Motivo de la visita / movimiento"
+                />
+              </IonItem>
+            </IonList>
+          </IonCardContent>
+        </IonCard>
 
-        {/* BOTONES */}
-        <IonButton expand="block" onClick={guardarRegistro}>
-          Guardar registro offline
+        {/* Botones grandes para guardias */}
+        <IonButton
+          expand="block"
+          size="large"
+          onClick={guardarRegistro}
+        >
+          GUARDAR REGISTRO OFFLINE
         </IonButton>
 
-        <IonButton expand="block" fill="outline" onClick={sincronizarAhora}>
-          Sincronizar ahora
+        <IonButton
+          expand="block"
+          size="large"
+          fill="outline"
+          onClick={sincronizarAhora}
+        >
+          SINCRONIZAR AHORA
         </IonButton>
 
-        {/* ESTADO */}
-        <p style={{ marginTop: 16 }}>
+        {/* Estado */}
+        <p style={{ marginTop: 16, fontSize: '1rem' }}>
           Pendientes sin sincronizar:{' '}
           <strong>{pendientes}</strong>
         </p>
