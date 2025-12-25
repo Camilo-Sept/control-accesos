@@ -14,8 +14,18 @@ class SyncService {
     this.syncing = true;
 
     try {
-      const status = await Network.getStatus();
-      if (!status.connected) {
+      let status;
+      try {
+        status = await Network.getStatus();
+      } catch (err) {
+        console.error('Error obteniendo estado de red:', err);
+        if (manual) {
+          throw new Error('No se pudo obtener el estado de la conexión.');
+        }
+        return { enviados: 0 };
+      }
+
+      if (!status?.connected) {
         if (manual) {
           throw new Error('Sin conexión a internet');
         }
@@ -23,22 +33,38 @@ class SyncService {
       }
 
       const pendientes: RegistroLocal[] = await sqliteService.obtenerPendientes();
-      if (!pendientes.length) return { enviados: 0 };
+      if (!pendientes.length) {
+        return { enviados: 0 };
+      }
 
-      const resp = await fetch(`${API_BASE}/registros/batch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': 'API_KEY_DEL_DISPOSITIVO',
-        },
-        body: JSON.stringify({
-          dispositivoId: pendientes[0].dispositivoId,
-          registros: pendientes,
-        }),
-      });
+      let resp: Response;
+      try {
+        resp = await fetch(`${API_BASE}/registros/batch`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': 'API_KEY_DEL_DISPOSITIVO',
+          },
+          body: JSON.stringify({
+            dispositivoId: pendientes[0].dispositivoId,
+            registros: pendientes,
+          }),
+        });
+      } catch (err) {
+        console.error('Error de red al hacer fetch al backend:', err);
+        if (manual) {
+          throw new Error('No se pudo conectar al servidor.');
+        }
+        return { enviados: 0 };
+      }
 
       if (!resp.ok) {
-        throw new Error(`Error backend: ${resp.status}`);
+        const msg = `Error backend: ${resp.status}`;
+        console.error(msg);
+        if (manual) {
+          throw new Error(msg);
+        }
+        return { enviados: 0 };
       }
 
       const json = await resp.json();
@@ -54,11 +80,20 @@ class SyncService {
   }
 
   async registrarAutoSync() {
-    await Network.addListener('networkStatusChange', async (status) => {
-      if (status.connected) {
-        await this.syncPendientes(false);
-      }
-    });
+    try {
+      await Network.addListener('networkStatusChange', async (status) => {
+        if (status.connected) {
+          try {
+            await this.syncPendientes(false);
+          } catch (err) {
+            console.error('Error durante auto-sync:', err);
+            // Nunca propagamos error hacia React desde aquí
+          }
+        }
+      });
+    } catch (err) {
+      console.error('No se pudo registrar listener de auto-sync:', err);
+    }
   }
 }
 

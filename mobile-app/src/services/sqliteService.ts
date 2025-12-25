@@ -16,6 +16,33 @@ import {
 
 const DB_NAME = 'control_accesos.db';
 
+// Fila cruda tal como viene de SQLite (snake_case)
+type RawRegistroRow = {
+  id: string;
+  tipo: string;
+  tipo_entidad: string;
+  categoria: string;
+
+  id_peaton: string | null;
+  nombre: string | null;
+  no_empleado: string | null;
+  empresa: string | null;
+  bodega: string | null;
+  asunto: string | null;
+
+  id_vehiculo: string | null;
+  modelo: string | null;
+  color: string | null;
+  placa: string | null;
+  foto_placas_path: string | null;
+
+  qr_contenido: string | null;
+  fecha_hora: string;
+
+  synced: number; // en SQLite será 0 ó 1
+  dispositivo_id: string;
+};
+
 class SQLiteService {
   private sqlite = new SQLiteConnection(CapacitorSQLite);
   private db: SQLiteDBConnection | null = null;
@@ -46,8 +73,6 @@ class SQLiteService {
 
     await this.db.open();
 
-    // Tabla con todos los campos que definimos
-    // id_local autoincremental solo local, id (UUID) global para sincronización
     await this.db.execute(`
       CREATE TABLE IF NOT EXISTS registros (
         id_local INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +104,35 @@ class SQLiteService {
     `);
 
     return this.db;
+  }
+
+  // 🔁 Mapea fila cruda de SQLite (snake_case) → modelo RegistroLocal (camelCase)
+  private mapRowToRegistro(row: RawRegistroRow): RegistroLocal {
+    return {
+      id: row.id,
+      tipo: row.tipo as TipoRegistro,
+      tipoEntidad: row.tipo_entidad as TipoEntidad,
+      categoria: row.categoria as CategoriaPersona,
+
+      idPeaton: row.id_peaton ?? null,
+      nombre: row.nombre ?? null,
+      noEmpleado: row.no_empleado ?? null,
+      empresa: row.empresa ?? null,
+      bodega: row.bodega ?? null,
+      asunto: row.asunto ?? null,
+
+      idVehiculo: row.id_vehiculo ?? null,
+      modelo: row.modelo ?? null,
+      color: row.color ?? null,
+      placa: row.placa ?? null,
+      fotoPlacasPath: row.foto_placas_path ?? null,
+
+      qrContenido: row.qr_contenido ?? null,
+      fechaHora: row.fecha_hora,
+      // 👇 aquí forzamos a que coincida con el tipo de RegistroLocal['synced']
+      synced: row.synced as unknown as RegistroLocal['synced'],
+      dispositivoId: row.dispositivo_id,
+    };
   }
 
   async insertarRegistro(data: {
@@ -162,7 +216,8 @@ class SQLiteService {
 
       qrContenido: data.qrContenido ?? null,
       fechaHora,
-      synced: 0,
+      // 👇 igual, respetando el tipo que tenga RegistroLocal['synced']
+      synced: 0 as unknown as RegistroLocal['synced'],
       dispositivoId: data.dispositivoId,
     };
 
@@ -172,7 +227,8 @@ class SQLiteService {
   async obtenerPendientes(): Promise<RegistroLocal[]> {
     const db = await this.getDb();
     const res = await db.query('SELECT * FROM registros WHERE synced = 0');
-    return (res.values ?? []) as RegistroLocal[];
+    const rows = (res.values ?? []) as RawRegistroRow[];
+    return rows.map((r) => this.mapRowToRegistro(r));
   }
 
   async marcarComoSincronizados(ids: string[]): Promise<void> {
@@ -185,7 +241,22 @@ class SQLiteService {
     );
   }
 
-  // Buscar el último registro de HOY por placas (para autollenado)
+  // 🔹 Traer todos los registros ordenados del más reciente al más viejo
+  async obtenerRegistrosOrdenadosPorFechaDesc(): Promise<RegistroLocal[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `
+      SELECT *
+      FROM registros
+      ORDER BY datetime(fecha_hora) DESC;
+      `
+    );
+    const rows = (res.values ?? []) as RawRegistroRow[];
+    return rows.map((r) => this.mapRowToRegistro(r));
+  }
+
+  // ==== BÚSQUEDAS PARA VALIDAR / AUTOLLENAR (último registro en general) ====
+
   async buscarUltimoPorPlacaHoy(placa: string): Promise<RegistroLocal | null> {
     const db = await this.getDb();
     const placaUpper = placa.toUpperCase();
@@ -194,7 +265,6 @@ class SQLiteService {
       SELECT *
       FROM registros
       WHERE placa = ?
-        AND date(fecha_hora) = date('now')
       ORDER BY datetime(fecha_hora) DESC
       LIMIT 1;
       `,
@@ -202,10 +272,59 @@ class SQLiteService {
     );
 
     if (!res.values || res.values.length === 0) return null;
-    return res.values[0] as RegistroLocal;
+    const row = res.values[0] as RawRegistroRow;
+    return this.mapRowToRegistro(row);
   }
 
-  // Preparado por si luego quieres autollenar por QR real
+  async buscarUltimoPorNoEmpleadoHoy(
+    noEmpleado: string
+  ): Promise<RegistroLocal | null> {
+    const db = await this.getDb();
+    const limpio = noEmpleado.trim().toUpperCase();
+    const res = await db.query(
+      `
+      SELECT *
+      FROM registros
+      WHERE no_empleado = ?
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1;
+      `,
+      [limpio]
+    );
+
+    if (!res.values || res.values.length === 0) return null;
+    const row = res.values[0] as RawRegistroRow;
+    return this.mapRowToRegistro(row);
+  }
+
+  async buscarUltimoPorPersonaHoy(
+    nombre: string,
+    empresa: string,
+    bodega: string
+  ): Promise<RegistroLocal | null> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `
+      SELECT *
+      FROM registros
+      WHERE nombre = ?
+        AND empresa = ?
+        AND bodega = ?
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1;
+      `,
+      [
+        nombre.trim().toUpperCase(),
+        empresa.trim().toUpperCase(),
+        bodega.trim().toUpperCase(),
+      ]
+    );
+
+    if (!res.values || res.values.length === 0) return null;
+    const row = res.values[0] as RawRegistroRow;
+    return this.mapRowToRegistro(row);
+  }
+
   async buscarUltimoPorQRHoy(qr: string): Promise<RegistroLocal | null> {
     const db = await this.getDb();
     const res = await db.query(
@@ -213,7 +332,6 @@ class SQLiteService {
       SELECT *
       FROM registros
       WHERE qr_contenido = ?
-        AND date(fecha_hora) = date('now')
       ORDER BY datetime(fecha_hora) DESC
       LIMIT 1;
       `,
@@ -221,7 +339,8 @@ class SQLiteService {
     );
 
     if (!res.values || res.values.length === 0) return null;
-    return res.values[0] as RegistroLocal;
+    const row = res.values[0] as RawRegistroRow;
+    return this.mapRowToRegistro(row);
   }
 }
 
