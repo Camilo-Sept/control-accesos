@@ -1,153 +1,146 @@
 import Link from "next/link";
-import { apiGet } from "@/lib/api";
+import { cleanSearchParams } from "@/lib/cleanSearchParams";
 
-type Registro = {
-  id: string;
-  tipo: "ENTRADA" | "SALIDA";
-  tipoEntidad: "PEATON" | "VEHICULO";
-  categoria: "EMPLEADO" | "PROVEEDOR" | "VISITANTE";
-  nombre: string | null;
-  noEmpleado: string | null;
-  empresa: string | null;
-  bodega: string | null;
-  asunto: string | null;
-  placa: string | null;
-  modelo: string | null;
-  color: string | null;
-  qrContenido: string | null;
-  fechaHora: string;
-  dispositivoId: string;
-  salidaSinEntrada: boolean;
+type PageProps = {
+  searchParams: Record<string, string | string[] | undefined>;
 };
 
-type ListResponse = {
-  total: number;
-  limit: number;
-  offset: number;
-  items: Registro[];
-};
+const API = process.env.NEXT_PUBLIC_API_BASE_URL!;
 
-function buildQuery(searchParams: Record<string, string | string[] | undefined>) {
-  const q = new URLSearchParams();
+function withParams(
+  basePath: string,
+  sp: URLSearchParams,
+  patch: Record<string, string | null>
+) {
+  const next = new URLSearchParams(sp.toString());
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) next.delete(k);
+    else next.set(k, v);
+  }
+  const qs = next.toString();
+  return qs ? `${basePath}?${qs}` : basePath;
+}
 
-  const pick = (key: string) => {
-    const v = searchParams[key];
-    if (!v) return undefined;
-    if (Array.isArray(v)) return v[0];
-    return v;
-  };
+export default async function RegistrosPage({ searchParams }: PageProps) {
+  // ✅ Limpia params vacíos: q=, tipo=, etc.
+  const sp = cleanSearchParams(searchParams);
 
-  const keys = [
-    "q",
-    "tipo",
-    "categoria",
-    "dispositivoId",
-    "bodega",
-    "from",
-    "to",
-    "hoy",
-    "salidaSinEntrada",
-    "limit",
-    "offset",
-  ] as const;
+  // defaults
+  const limit = Number(sp.get("limit") ?? "50");
+  const offset = Number(sp.get("offset") ?? "0");
 
-  for (const k of keys) {
-    const v = pick(k);
-    if (v && v.trim().length) q.set(k, v);
+  // Normaliza (por si venían raros)
+  if (!sp.get("limit")) sp.set("limit", String(isFinite(limit) ? limit : 50));
+  if (!sp.get("offset")) sp.set("offset", String(isFinite(offset) ? offset : 0));
+
+  const query = sp.toString();
+  const url = `${API}/registros?${query}`;
+
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) {
+    throw new Error(`Error cargando registros (${resp.status})`);
   }
 
-  if (!q.get("limit")) q.set("limit", "50");
-  if (!q.get("offset")) q.set("offset", "0");
+  const data: {
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+      id: string;
+      tipo: "ENTRADA" | "SALIDA";
+      tipoEntidad: "PEATON" | "VEHICULO";
+      categoria: "EMPLEADO" | "PROVEEDOR" | "VISITANTE";
+      nombre: string | null;
+      noEmpleado: string | null;
+      empresa: string | null;
+      bodega: string | null;
+      asunto: string | null;
+      placa: string | null;
+      fechaHora: string;
+      dispositivoId: string;
+      salidaSinEntrada: boolean;
+    }>;
+  } = await resp.json();
 
-  return q.toString();
-}
+  // ✅ Export con filtros activos (ya limpios)
+  const exportXlsxUrl = `${API}/registros/export.xlsx?${query}`;
+  const exportPdfUrl = `${API}/registros/export.pdf?${query}`;
 
-function fmtDate(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
-}
+  const q = sp.get("q") ?? "";
+  const tipo = sp.get("tipo") ?? "";
+  const categoria = sp.get("categoria") ?? "";
+  const dispositivoId = sp.get("dispositivoId") ?? "";
+  const bodega = sp.get("bodega") ?? "";
+  const from = sp.get("from") ?? "";
+  const to = sp.get("to") ?? "";
+  const hoy = sp.get("hoy") === "1" || sp.get("hoy") === "true";
+  const salidaSinEntrada =
+    sp.get("salidaSinEntrada") === "1" || sp.get("salidaSinEntrada") === "true";
 
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5 text-xs font-medium">
-      {children}
-    </span>
-  );
-}
-export const dynamic = "force-dynamic";
+  const hasPrev = data.offset > 0;
+  const hasNext = data.offset + data.limit < data.total;
 
-export default async function RegistrosPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
-  const qs = buildQuery(searchParams);
-  const data = await apiGet<ListResponse>(`/registros?${qs}`);
+  const prevOffset = Math.max(0, data.offset - data.limit);
+  const nextOffset = data.offset + data.limit;
 
-  const limit = data.limit ?? 50;
-  const offset = data.offset ?? 0;
-  const total = data.total ?? 0;
-
-  const page = Math.floor(offset / limit) + 1;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
-  const prevOffset = Math.max(offset - limit, 0);
-  const nextOffset = offset + limit;
-
-  const makeLink = (patch: Record<string, string | null>) => {
-    const sp = new URLSearchParams(qs);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === null) sp.delete(k);
-      else sp.set(k, v);
-    }
-    return `/registros?${sp.toString()}`;
-  };
-
-  // Export links: usan los filtros del URL (qs)
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (!base) throw new Error("NEXT_PUBLIC_API_BASE_URL no está configurada");
-  const exportXlsx = `${base}/registros/export.xlsx?${qs}`;
-  const exportPdf = `${base}/registros/export.pdf?${qs}`;
-
-  const getVal = (k: string) => (Array.isArray(searchParams[k]) ? searchParams[k]?.[0] : searchParams[k]) ?? "";
+  const prevHref = withParams("/registros", sp, { offset: String(prevOffset) });
+  const nextHref = withParams("/registros", sp, { offset: String(nextOffset) });
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end justify-between gap-3">
+    <div className="mx-auto max-w-7xl p-6 space-y-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Registros</h1>
-          <p className="text-sm opacity-70">
-            Total: <span className="font-semibold">{total}</span> · Página{" "}
-            <span className="font-semibold">{page}</span> /{" "}
-            <span className="font-semibold">{totalPages}</span>
+          <p className="text-sm text-slate-500">
+            Total: <span className="font-medium text-slate-900">{data.total}</span>
           </p>
         </div>
 
-        <Link
-          href="/dashboard"
-          className="rounded-xl border bg-white px-4 py-2 text-sm font-medium shadow-sm hover:shadow"
-        >
-          ← Volver al dashboard
-        </Link>
+        {/* ✅ UN SOLO BLOQUE DE EXPORT (sin duplicados) */}
+        <div className="flex gap-2">
+          <a
+            href={exportXlsxUrl}
+            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Exportar Excel
+          </a>
+          <a
+            href={exportPdfUrl}
+            className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Exportar PDF
+          </a>
+        </div>
       </div>
 
-      {/* Filtros */}
-      <form action="/registros" method="get" className="rounded-2xl border bg-white p-4 shadow-sm">
+      {/* Filtros (GET) */}
+      <form
+        action="/registros"
+        method="get"
+        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+      >
+        {/* Reinicia offset al aplicar filtros */}
+        <input type="hidden" name="limit" value={String(data.limit)} />
+        <input type="hidden" name="offset" value="0" />
+
         <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
           <div className="md:col-span-2">
-            <label className="text-xs font-medium opacity-70">Buscar (q)</label>
+            <label className="block text-xs font-medium text-slate-600">Buscar</label>
             <input
               name="q"
-              defaultValue={getVal("q")}
-              placeholder="Nombre, empleado, placa, empresa..."
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              defaultValue={q}
+              placeholder="Nombre, empleado, placa..."
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium opacity-70">Tipo</label>
-            <select name="tipo" defaultValue={getVal("tipo")} className="mt-1 w-full rounded-xl border px-3 py-2 text-sm">
+            <label className="block text-xs font-medium text-slate-600">Tipo</label>
+            <select
+              name="tipo"
+              defaultValue={tipo}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
               <option value="">Todos</option>
               <option value="ENTRADA">ENTRADA</option>
               <option value="SALIDA">SALIDA</option>
@@ -155,11 +148,11 @@ export default async function RegistrosPage({
           </div>
 
           <div>
-            <label className="text-xs font-medium opacity-70">Categoría</label>
+            <label className="block text-xs font-medium text-slate-600">Categoría</label>
             <select
               name="categoria"
-              defaultValue={getVal("categoria")}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              defaultValue={categoria}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="">Todas</option>
               <option value="EMPLEADO">EMPLEADO</option>
@@ -169,170 +162,171 @@ export default async function RegistrosPage({
           </div>
 
           <div>
-            <label className="text-xs font-medium opacity-70">Dispositivo</label>
+            <label className="block text-xs font-medium text-slate-600">Dispositivo</label>
             <input
               name="dispositivoId"
-              defaultValue={getVal("dispositivoId")}
+              defaultValue={dispositivoId}
               placeholder="TABLET-01"
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium opacity-70">Bodega</label>
+            <label className="block text-xs font-medium text-slate-600">Bodega</label>
             <input
               name="bodega"
-              defaultValue={getVal("bodega")}
+              defaultValue={bodega}
               placeholder="BODEGA 1"
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium opacity-70">Desde (ISO)</label>
+            <label className="block text-xs font-medium text-slate-600">Desde</label>
             <input
               name="from"
-              defaultValue={getVal("from")}
-              placeholder="2025-12-25T00:00:00.000Z"
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              defaultValue={from}
+              placeholder="2025-12-26T00:00:00.000Z"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium opacity-70">Hasta (ISO)</label>
+            <label className="block text-xs font-medium text-slate-600">Hasta</label>
             <input
               name="to"
-              defaultValue={getVal("to")}
+              defaultValue={to}
               placeholder="2025-12-26T23:59:59.999Z"
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
 
-          <div className="flex items-end gap-2">
-            <label className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm">
-              <input type="checkbox" name="hoy" value="1" defaultChecked={getVal("hoy") === "1"} />
+          <div className="flex items-center gap-2 md:col-span-2">
+            <label className="mt-5 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="hoy"
+                value="1"
+                defaultChecked={hoy}
+                className="h-4 w-4"
+              />
               Hoy
             </label>
 
-            <label className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm">
+            <label className="mt-5 flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 name="salidaSinEntrada"
                 value="1"
-                defaultChecked={getVal("salidaSinEntrada") === "1"}
+                defaultChecked={salidaSinEntrada}
+                className="h-4 w-4"
               />
               Salida sin entrada
             </label>
           </div>
 
-          <div className="flex items-end justify-end gap-2 md:col-span-6">
-            <Link href="/registros" className="rounded-xl border bg-white px-4 py-2 text-sm font-medium shadow-sm hover:shadow">
-              Limpiar
-            </Link>
-
-            <input type="hidden" name="limit" value={getVal("limit") || "50"} />
-            <input type="hidden" name="offset" value="0" />
-
+          <div className="md:col-span-2 flex items-end gap-2">
             <button
               type="submit"
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+              className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               Aplicar filtros
             </button>
+
+            <Link
+              href="/registros"
+              className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-center text-sm font-medium hover:bg-slate-50"
+            >
+              Limpiar
+            </Link>
           </div>
         </div>
       </form>
 
-      {/* Acciones (EXPORT) */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-600">Exporta respetando los filtros actuales.</div>
-        <div className="flex gap-2">
-          <a href={exportXlsx} className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold shadow-sm hover:shadow">
-            Exportar Excel
-          </a>
-          <a href={exportPdf} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95">
-            Exportar PDF
-          </a>
-        </div>
+      {/* Tabla */}
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-600">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">Fecha</th>
+              <th className="px-4 py-3 text-left font-medium">Tipo</th>
+              <th className="px-4 py-3 text-left font-medium">Categoría</th>
+              <th className="px-4 py-3 text-left font-medium">Nombre</th>
+              <th className="px-4 py-3 text-left font-medium">Bodega</th>
+              <th className="px-4 py-3 text-left font-medium">Placa</th>
+              <th className="px-4 py-3 text-left font-medium">Dispositivo</th>
+              <th className="px-4 py-3 text-left font-medium">Auditoría</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.items.map((it) => (
+              <tr key={it.id} className="border-t border-slate-100">
+                <td className="px-4 py-3 whitespace-nowrap">{it.fechaHora}</td>
+                <td className="px-4 py-3">{it.tipo}</td>
+                <td className="px-4 py-3">{it.categoria}</td>
+                <td className="px-4 py-3">{it.nombre ?? "-"}</td>
+                <td className="px-4 py-3">{it.bodega ?? "-"}</td>
+                <td className="px-4 py-3">{it.placa ?? "-"}</td>
+                <td className="px-4 py-3">{it.dispositivoId}</td>
+                <td className="px-4 py-3">
+                  {it.salidaSinEntrada ? (
+                    <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                      SALIDA SIN ENTRADA
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {data.items.length === 0 && (
+              <tr>
+                <td className="px-4 py-6 text-center text-slate-500" colSpan={8}>
+                  No hay registros con los filtros actuales.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {/* Tabla */}
-      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b bg-slate-50">
-              <tr>
-                <th className="px-4 py-3 font-semibold">Fecha</th>
-                <th className="px-4 py-3 font-semibold">Tipo</th>
-                <th className="px-4 py-3 font-semibold">Categoría</th>
-                <th className="px-4 py-3 font-semibold">Nombre</th>
-                <th className="px-4 py-3 font-semibold">Empleado</th>
-                <th className="px-4 py-3 font-semibold">Empresa</th>
-                <th className="px-4 py-3 font-semibold">Bodega</th>
-                <th className="px-4 py-3 font-semibold">Placa</th>
-                <th className="px-4 py-3 font-semibold">Dispositivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-sm opacity-70" colSpan={9}>
-                    No hay registros con esos filtros.
-                  </td>
-                </tr>
-              ) : (
-                data.items.map((it) => (
-                  <tr key={it.id} className="border-b last:border-b-0">
-                    <td className="px-4 py-3 whitespace-nowrap">{fmtDate(it.fechaHora)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Badge>{it.tipo}</Badge>
-                        {it.salidaSinEntrada ? <Badge>⚠ SIN ENTRADA</Badge> : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge>{it.categoria}</Badge>
-                    </td>
-                    <td className="px-4 py-3">{it.nombre ?? "-"}</td>
-                    <td className="px-4 py-3">{it.noEmpleado ?? "-"}</td>
-                    <td className="px-4 py-3">{it.empresa ?? "-"}</td>
-                    <td className="px-4 py-3">{it.bodega ?? "-"}</td>
-                    <td className="px-4 py-3">{it.placa ?? "-"}</td>
-                    <td className="px-4 py-3">{it.dispositivoId}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* Paginación */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-slate-600">
+          Mostrando{" "}
+          <span className="font-medium text-slate-900">
+            {data.items.length ? data.offset + 1 : 0}
+          </span>{" "}
+          -{" "}
+          <span className="font-medium text-slate-900">
+            {Math.min(data.offset + data.items.length, data.total)}
+          </span>{" "}
+          de <span className="font-medium text-slate-900">{data.total}</span>
         </div>
 
-        {/* Paginación */}
-        <div className="flex items-center justify-between border-t bg-white px-4 py-3">
-          <div className="text-xs opacity-70">
-            Mostrando {Math.min(total, offset + 1)} - {Math.min(total, offset + limit)} de {total}
-          </div>
-
-          <div className="flex gap-2">
-            <Link
-              href={makeLink({ offset: String(prevOffset) })}
-              aria-disabled={offset === 0}
-              className={`rounded-xl border px-3 py-2 text-sm font-medium shadow-sm ${
-                offset === 0 ? "pointer-events-none opacity-50" : "hover:shadow"
-              }`}
-            >
-              ← Anterior
-            </Link>
-
-            <Link
-              href={makeLink({ offset: String(nextOffset) })}
-              aria-disabled={nextOffset >= total}
-              className={`rounded-xl border px-3 py-2 text-sm font-medium shadow-sm ${
-                nextOffset >= total ? "pointer-events-none opacity-50" : "hover:shadow"
-              }`}
-            >
-              Siguiente →
-            </Link>
-          </div>
+        <div className="flex gap-2">
+          <Link
+            href={hasPrev ? prevHref : "#"}
+            aria-disabled={!hasPrev}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+              hasPrev
+                ? "border-slate-200 bg-white hover:bg-slate-50"
+                : "border-slate-100 bg-slate-50 text-slate-400 pointer-events-none"
+            }`}
+          >
+            Anterior
+          </Link>
+          <Link
+            href={hasNext ? nextHref : "#"}
+            aria-disabled={!hasNext}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+              hasNext
+                ? "border-slate-200 bg-white hover:bg-slate-50"
+                : "border-slate-100 bg-slate-50 text-slate-400 pointer-events-none"
+            }`}
+          >
+            Siguiente
+          </Link>
         </div>
       </div>
     </div>
