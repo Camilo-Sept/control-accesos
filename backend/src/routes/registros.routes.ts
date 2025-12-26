@@ -4,6 +4,8 @@ import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 import { RegistrosRepo } from '../repos/registros.repo'
 import { HttpError } from '../lib/httpErrors'
+import { requireDeviceApiKey } from '../middlewares/deviceAuth'
+import { pool } from '../db/pool'
 
 const RegistroSchema = z.object({
   id: z.string().uuid().optional(),
@@ -34,10 +36,18 @@ const BatchSchema = z.object({
   registros: z.array(RegistroSchema).min(1),
 })
 
+// ✅ boolean query param robusto: '1'/'true' => true, '0'/'false' => false, vacío/undefined => undefined
 const BoolParam = z
-  .string()
-  .transform((v) => v === 'true' || v === '1')
+  .union([z.string(), z.boolean()])
   .optional()
+  .transform((v) => {
+    if (v === undefined) return undefined
+    if (typeof v === 'boolean') return v
+    const s = v.trim().toLowerCase()
+    if (s === 'true' || s === '1') return true
+    if (s === 'false' || s === '0') return false
+    return undefined
+  })
 
 const IsoParam = z
   .string()
@@ -73,9 +83,9 @@ const querySchema = z.object({
 function parseFilters(reqQuery: any) {
   const parsed = querySchema.safeParse(reqQuery)
   if (!parsed.success) {
-    const err = new HttpError('Query inválida', 400, parsed.error.flatten())
-    throw err
+    throw new HttpError('Query inválida', 400, parsed.error.flatten())
   }
+
   return {
     q: parsed.data.q,
     tipo: parsed.data.tipo,
@@ -91,18 +101,92 @@ function parseFilters(reqQuery: any) {
   }
 }
 
+// Helper: registra log de sync (best-effort, nunca rompe el flujo)
+async function logSyncBatch(input: {
+  dispositivoId: string | null
+  receivedCount: number
+  confirmedCount: number
+  ip: string | null
+  userAgent: string | null
+  error: string | null
+}) {
+  try {
+    await pool.query(
+      `
+      INSERT INTO sync_logs (dispositivo_id, received_count, confirmed_count, ip, user_agent, error)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [
+        input.dispositivoId,
+        input.receivedCount,
+        input.confirmedCount,
+        input.ip,
+        input.userAgent,
+        input.error,
+      ]
+    )
+  } catch {
+    // no-op
+  }
+}
+
 export function registrosRoutes() {
   const r = Router()
   const repo = new RegistrosRepo()
 
-  r.post('/batch', async (req, res, next) => {
+  // POST /registros/batch
+  // - protegido SOLO si REQUIRE_DEVICE_AUTH=1 (por middleware)
+  // - siempre regresa confirmados
+  // - siempre registra log (éxito/fracaso) sin romper nada
+  r.post('/batch', requireDeviceApiKey, async (req, res, next) => {
+    const ip =
+      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
+      req.socket?.remoteAddress ??
+      null
+    const userAgent = (req.headers['user-agent'] as string | undefined) ?? null
+
+    let dispositivoId: string | null = null
+    let receivedCount = 0
+
     try {
       const parsed = BatchSchema.safeParse(req.body)
-      if (!parsed.success) throw new HttpError('Payload inválido', 400, parsed.error.flatten())
+      if (!parsed.success) {
+        await logSyncBatch({
+          dispositivoId: null,
+          receivedCount: 0,
+          confirmedCount: 0,
+          ip,
+          userAgent,
+          error: 'Payload inválido (Zod)',
+        })
+        throw new HttpError('Payload inválido', 400, parsed.error.flatten())
+      }
 
-      const insertedIds = await repo.insertBatch(parsed.data.registros)
-      res.json({ ok: true, insertedIds })
-    } catch (e) {
+      receivedCount = parsed.data.registros.length
+      dispositivoId = parsed.data.registros[0]?.dispositivoId ?? null
+
+      const confirmados = await repo.insertBatch(parsed.data.registros)
+
+      await logSyncBatch({
+        dispositivoId,
+        receivedCount,
+        confirmedCount: confirmados.length,
+        ip,
+        userAgent,
+        error: null,
+      })
+
+      res.json({ ok: true, confirmados })
+    } catch (e: any) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido'
+      await logSyncBatch({
+        dispositivoId,
+        receivedCount,
+        confirmedCount: 0,
+        ip,
+        userAgent,
+        error: msg,
+      })
       next(e)
     }
   })
@@ -111,29 +195,28 @@ export function registrosRoutes() {
   r.get('/', async (req, res, next) => {
     try {
       const f = parseFilters(req.query)
-
-      const data = await repo.list({
-        ...f,
-        limit: f.limit,
-        offset: f.offset,
-      })
-
+      const data = await repo.list({ ...f, limit: f.limit, offset: f.offset })
       res.json(data)
     } catch (err) {
       next(err)
     }
   })
 
-  // Export Excel
+  // Export Excel (usa EXACTAMENTE los mismos filtros que /registros)
   r.get('/export.xlsx', async (req, res, next) => {
     try {
       const f = parseFilters(req.query)
 
-      // Para export: subimos límite (pero con tope para no tumbar el server)
-      const data = await repo.list({
-        ...f,
-        limit: 5000,
-        offset: 0,
+      const rows = await repo.listForExport({
+        q: f.q,
+        tipo: f.tipo,
+        categoria: f.categoria,
+        dispositivoId: f.dispositivoId,
+        bodega: f.bodega,
+        salidaSinEntrada: f.salidaSinEntrada,
+        hoy: f.hoy,
+        from: f.from,
+        to: f.to,
       })
 
       const wb = new ExcelJS.Workbook()
@@ -159,7 +242,7 @@ export function registrosRoutes() {
 
       ws.getRow(1).font = { bold: true }
 
-      for (const it of data.items) {
+      for (const it of rows) {
         ws.addRow({
           fechaHora: it.fechaHora,
           tipo: it.tipo,
@@ -176,10 +259,7 @@ export function registrosRoutes() {
         })
       }
 
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      )
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       res.setHeader('Content-Disposition', 'attachment; filename="registros.xlsx"')
 
       await wb.xlsx.write(res)
@@ -194,11 +274,19 @@ export function registrosRoutes() {
     try {
       const f = parseFilters(req.query)
 
-      const data = await repo.list({
-        ...f,
-        limit: 1000, // PDF no debe ser infinito
-        offset: 0,
+      const rowsAll = await repo.listForExport({
+        q: f.q,
+        tipo: f.tipo,
+        categoria: f.categoria,
+        dispositivoId: f.dispositivoId,
+        bodega: f.bodega,
+        salidaSinEntrada: f.salidaSinEntrada,
+        hoy: f.hoy,
+        from: f.from,
+        to: f.to,
       })
+
+      const rows = rowsAll.slice(0, 1000)
 
       res.setHeader('Content-Type', 'application/pdf')
       res.setHeader('Content-Disposition', 'attachment; filename="registros.pdf"')
@@ -212,11 +300,11 @@ export function registrosRoutes() {
       doc.moveDown()
 
       doc.fillColor('#000')
-      doc.fontSize(11).text(`Total (máx mostrado): ${data.items.length}`)
+      doc.fontSize(11).text(`Total (máx mostrado): ${rows.length}`)
       doc.moveDown()
 
       doc.fontSize(9)
-      for (const it of data.items) {
+      for (const it of rows) {
         const line = [
           it.fechaHora,
           it.tipo,

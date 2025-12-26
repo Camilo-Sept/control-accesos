@@ -25,3 +25,8 @@ CREATE INDEX IF NOT EXISTS idx_registros_bodega_fecha ON registros (bodega, fech
 CREATE INDEX IF NOT EXISTS idx_registros_no_empleado ON registros (no_empleado);
 CREATE INDEX IF NOT EXISTS idx_registros_placa ON registros (placa);
 CREATE INDEX IF NOT EXISTS idx_registros_dispositivo ON registros (dispositivo_id);
+CREATE INDEX IF NOT EXISTS idx_registros_qr_contenido ON registros (qr_contenido);
+CREATE INDEX IF NOT EXISTS idx_registros_placa_fecha ON registros (placa, fecha_hora DESC);
+CREATE INDEX IF NOT EXISTS idx_registros_no_empleado_fecha ON registros (no_empleado, fecha_hora DESC);
+CREATE INDEX IF NOT EXISTS idx_registros_qr_fecha ON registros (qr_contenido, fecha_hora DESC);
+
