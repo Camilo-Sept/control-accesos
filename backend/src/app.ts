@@ -4,6 +4,7 @@ import { env } from './lib/env'
 import { healthRoutes } from './routes/health.routes'
 import { dashboardRoutes } from './routes/dashboard.routes'
 import { registrosRoutes } from './routes/registros.routes'
+import { authRoutes } from './routes/auth.routes'
 import { HttpError } from './lib/httpErrors'
 
 export function createApp() {
@@ -13,6 +14,7 @@ export function createApp() {
   app.use(express.json({ limit: '2mb' }))
 
   app.use('/health', healthRoutes())
+  app.use('/auth', authRoutes()) // ✅ AQUÍ
   app.use('/dashboard', dashboardRoutes())
   app.use('/registros', registrosRoutes())
 

@@ -33,6 +33,11 @@ function clampInt(v: any, def: number, min: number, max: number) {
   return Math.min(Math.max(n, min), max)
 }
 
+function parseBool(v: any): boolean {
+  const s = String(v ?? '').trim().toLowerCase()
+  return s === '1' || s === 'true' || s === 'yes'
+}
+
 export function dashboardRoutes() {
   const r = Router()
 
@@ -265,6 +270,71 @@ export function dashboardRoutes() {
         limit,
         offset,
         items: itemsRes.rows,
+      })
+    } catch (e) {
+      next(e)
+    }
+  })
+
+  /**
+   * ✅ GET /dashboard/sync-logs?limit=50&offset=0&dispositivoId=TABLET-01&soloErrores=1
+   * Logs de sincronización (audit trail). Esto te salva la vida en producción.
+   */
+  r.get('/sync-logs', async (req, res, next) => {
+    try {
+      const limit = clampInt(req.query.limit, 50, 1, 200)
+      const offset = clampInt(req.query.offset, 0, 0, 1_000_000)
+
+      const dispositivoIdRaw = String(req.query.dispositivoId ?? '').trim()
+      const dispositivoId = dispositivoIdRaw.length ? dispositivoIdRaw : undefined
+
+      const soloErrores = parseBool(req.query.soloErrores)
+
+      const where: string[] = []
+      const values: any[] = []
+      let i = 1
+
+      if (dispositivoId) {
+        where.push(`dispositivo_id = $${i++}`)
+        values.push(dispositivoId)
+      }
+
+      if (soloErrores) {
+        where.push(`error IS NOT NULL AND btrim(error) <> ''`)
+      }
+
+      const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+
+      const totalRes = await pool.query(
+        `SELECT count(*)::int AS total FROM sync_logs ${whereSql}`,
+        values
+      )
+      const total = totalRes.rows[0]?.total ?? 0
+
+      const rowsRes = await pool.query(
+        `
+        SELECT
+          id,
+          dispositivo_id AS "dispositivoId",
+          received_count AS "receivedCount",
+          confirmed_count AS "confirmedCount",
+          ip,
+          user_agent AS "userAgent",
+          error,
+          created_at AS "createdAt"
+        FROM sync_logs
+        ${whereSql}
+        ORDER BY created_at DESC
+        LIMIT $${i++} OFFSET $${i++}
+        `,
+        [...values, limit, offset]
+      )
+
+      res.json({
+        total,
+        limit,
+        offset,
+        items: rowsRes.rows,
       })
     } catch (e) {
       next(e)
