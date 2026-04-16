@@ -5,6 +5,7 @@ import PDFDocument from 'pdfkit'
 import { RegistrosRepo } from '../repos/registros.repo'
 import { HttpError } from '../lib/httpErrors'
 import { requireDeviceApiKey } from '../middlewares/deviceAuth'
+import { requireAdminJwt } from '../middlewares/adminAuth'
 import { pool } from '../db/pool'
 
 const RegistroSchema = z.object({
@@ -192,7 +193,7 @@ export function registrosRoutes() {
   })
 
   // GET /registros?... filtros ...
-  r.get('/', async (req, res, next) => {
+r.get('/', requireAdminJwt, async (req, res, next) => {
     try {
       const f = parseFilters(req.query)
       const data = await repo.list({ ...f, limit: f.limit, offset: f.offset })
@@ -203,7 +204,7 @@ export function registrosRoutes() {
   })
 
   // Export Excel (usa EXACTAMENTE los mismos filtros que /registros)
-  r.get('/export.xlsx', async (req, res, next) => {
+  r.get('/export.xlsx', requireAdminJwt, async (req, res, next) => {
     try {
       const f = parseFilters(req.query)
 
@@ -223,28 +224,97 @@ export function registrosRoutes() {
       wb.creator = 'control-accesos'
       wb.created = new Date()
 
-      const ws = wb.addWorksheet('Registros')
+      const ws = wb.addWorksheet('Registros', {
+        views: [{ state: 'frozen', ySplit: 4 }],
+      })
+
+      const filtros: string[] = []
+      if (f.q) filtros.push(`Buscar: ${f.q}`)
+      if (f.tipo) filtros.push(`Tipo: ${f.tipo}`)
+      if (f.categoria) filtros.push(`Categoría: ${f.categoria}`)
+      if (f.dispositivoId) filtros.push(`Dispositivo: ${f.dispositivoId}`)
+      if (f.bodega) filtros.push(`Bodega: ${f.bodega}`)
+      if (f.salidaSinEntrada === true) filtros.push('Solo salida sin entrada')
+      if (f.hoy === true) filtros.push('Hoy')
+      if (f.from) filtros.push(`Desde: ${f.from}`)
+      if (f.to) filtros.push(`Hasta: ${f.to}`)
+
+      ws.mergeCells('A1:L1')
+      ws.getCell('A1').value = 'Reporte de registros'
+      ws.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FF0F172A' } }
+      ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'left' }
+
+      ws.mergeCells('A2:L2')
+      ws.getCell('A2').value = `Generado: ${new Date().toLocaleString('es-MX')}`
+      ws.getCell('A2').font = { size: 10, color: { argb: 'FF475569' } }
+
+      ws.mergeCells('A3:L3')
+      ws.getCell('A3').value = filtros.length ? filtros.join(' | ') : 'Sin filtros'
+      ws.getCell('A3').font = { size: 10, color: { argb: 'FF334155' } }
+      ws.getCell('A3').fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF8FAFC' },
+      }
+      ws.getCell('A3').border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      }
 
       ws.columns = [
         { header: 'Fecha', key: 'fechaHora', width: 24 },
         { header: 'Tipo', key: 'tipo', width: 10 },
         { header: 'Entidad', key: 'tipoEntidad', width: 12 },
-        { header: 'Categoría', key: 'categoria', width: 12 },
-        { header: 'Nombre', key: 'nombre', width: 24 },
+        { header: 'Categoría', key: 'categoria', width: 14 },
+        { header: 'Nombre', key: 'nombre', width: 26 },
         { header: 'No. Empleado', key: 'noEmpleado', width: 14 },
         { header: 'Empresa', key: 'empresa', width: 18 },
-        { header: 'Bodega', key: 'bodega', width: 14 },
-        { header: 'Asunto', key: 'asunto', width: 18 },
+        { header: 'Bodega', key: 'bodega', width: 16 },
+        { header: 'Asunto', key: 'asunto', width: 20 },
         { header: 'Placa', key: 'placa', width: 12 },
         { header: 'Dispositivo', key: 'dispositivoId', width: 14 },
-        { header: 'Sin entrada', key: 'salidaSinEntrada', width: 12 },
+        { header: 'Auditoría', key: 'auditoria', width: 22 },
       ]
 
-      ws.getRow(1).font = { bold: true }
+      const headerRow = ws.getRow(4)
+      headerRow.values = [
+        'Fecha',
+        'Tipo',
+        'Entidad',
+        'Categoría',
+        'Nombre',
+        'No. Empleado',
+        'Empresa',
+        'Bodega',
+        'Asunto',
+        'Placa',
+        'Dispositivo',
+        'Auditoría',
+      ]
+
+      headerRow.height = 22
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF2563EB' },
+      }
+
+      headerRow.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF1D4ED8' } },
+          left: { style: 'thin', color: { argb: 'FF1D4ED8' } },
+          bottom: { style: 'thin', color: { argb: 'FF1D4ED8' } },
+          right: { style: 'thin', color: { argb: 'FF1D4ED8' } },
+        }
+      })
 
       for (const it of rows) {
-        ws.addRow({
-          fechaHora: it.fechaHora,
+        const row = ws.addRow({
+          fechaHora: new Date(it.fechaHora).toLocaleString('es-MX'),
           tipo: it.tipo,
           tipoEntidad: it.tipoEntidad,
           categoria: it.categoria,
@@ -255,8 +325,36 @@ export function registrosRoutes() {
           asunto: it.asunto ?? '',
           placa: it.placa ?? '',
           dispositivoId: it.dispositivoId ?? '',
-          salidaSinEntrada: it.salidaSinEntrada ? 'SI' : 'NO',
+          auditoria: it.salidaSinEntrada ? 'SALIDA SIN ENTRADA' : '',
         })
+
+        row.height = 20
+
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'left' }
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          }
+        })
+
+        if (it.salidaSinEntrada) {
+          row.eachCell((cell) => {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFEF2F2' },
+            }
+          })
+          row.getCell(12).font = { bold: true, color: { argb: 'FFB91C1C' } }
+        }
+      }
+
+      ws.autoFilter = {
+        from: 'A4',
+        to: 'L4',
       }
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -269,12 +367,12 @@ export function registrosRoutes() {
     }
   })
 
-  // Export PDF (simple, listado)
-  r.get('/export.pdf', async (req, res, next) => {
+  // Export PDF (formato bonito para historial)
+  r.get('/export.pdf', requireAdminJwt, async (req, res, next) => {
     try {
       const f = parseFilters(req.query)
 
-      const rowsAll = await repo.listForExport({
+      const rows = await repo.listForExport({
         q: f.q,
         tipo: f.tipo,
         categoria: f.categoria,
@@ -286,44 +384,207 @@ export function registrosRoutes() {
         to: f.to,
       })
 
-      const rows = rowsAll.slice(0, 1000)
+      const doc = new PDFDocument({
+        size: 'A4',
+        layout: 'landscape',
+        margin: 36,
+      })
 
       res.setHeader('Content-Type', 'application/pdf')
       res.setHeader('Content-Disposition', 'attachment; filename="registros.pdf"')
 
-      const doc = new PDFDocument({ margin: 36, size: 'A4' })
       doc.pipe(res)
 
-      doc.fontSize(16).text('Registros - Control de accesos', { align: 'left' })
-      doc.moveDown(0.5)
-      doc.fontSize(10).fillColor('#555').text(`Generado: ${new Date().toLocaleString()}`)
-      doc.moveDown()
+      const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right
+      const startX = doc.page.margins.left
+      let y = doc.page.margins.top
 
-      doc.fillColor('#000')
-      doc.fontSize(11).text(`Total (máx mostrado): ${rows.length}`)
-      doc.moveDown()
+      const colFecha = 110
+      const colTipo = 60
+      const colCategoria = 80
+      const colNombre = 160
+      const colBodega = 90
+      const colPlaca = 80
+      const colDispositivo = 85
+      const colAuditoria = 120
 
-      doc.fontSize(9)
-      for (const it of rows) {
-        const line = [
-          it.fechaHora,
-          it.tipo,
-          it.categoria,
-          it.nombre ?? '-',
-          it.noEmpleado ?? '-',
-          it.empresa ?? '-',
-          it.bodega ?? '-',
-          it.placa ?? '-',
-          it.dispositivoId,
-          it.salidaSinEntrada ? 'SIN ENTRADA' : '',
-        ]
-          .filter(Boolean)
-          .join(' · ')
+      const rowHeight = 22
+      const headerHeight = 24
 
-        doc.text(line)
-        doc.moveDown(0.3)
+      function fmt(v?: string | null) {
+        return v ?? '-'
+      }
 
-        if (doc.y > 760) doc.addPage()
+      function fmtDate(v: string) {
+        try {
+          return new Date(v).toLocaleString('es-MX')
+        } catch {
+          return v
+        }
+      }
+
+      function drawTitle() {
+        doc.font('Helvetica-Bold').fontSize(18).fillColor('#0f172a')
+        doc.text('Reporte de registros', startX, y)
+
+        y += 24
+
+        doc.font('Helvetica').fontSize(9).fillColor('#475569')
+        doc.text(`Generado: ${new Date().toLocaleString('es-MX')}`, startX, y)
+
+        y += 14
+
+        const filtros: string[] = []
+        if (f.q) filtros.push(`Buscar: ${f.q}`)
+        if (f.tipo) filtros.push(`Tipo: ${f.tipo}`)
+        if (f.categoria) filtros.push(`Categoría: ${f.categoria}`)
+        if (f.dispositivoId) filtros.push(`Dispositivo: ${f.dispositivoId}`)
+        if (f.bodega) filtros.push(`Bodega: ${f.bodega}`)
+        if (f.salidaSinEntrada === true) filtros.push('Solo salida sin entrada')
+        if (f.hoy === true) filtros.push('Hoy')
+        if (f.from) filtros.push(`Desde: ${f.from}`)
+        if (f.to) filtros.push(`Hasta: ${f.to}`)
+
+        doc.roundedRect(startX, y, pageWidth, 34, 6).fillAndStroke('#f8fafc', '#e2e8f0')
+
+        doc.font('Helvetica').fontSize(9).fillColor('#334155')
+        doc.text(
+          filtros.length ? filtros.join('   |   ') : 'Sin filtros',
+          startX + 10,
+          y + 11,
+          { width: pageWidth - 20 }
+        )
+
+        y += 44
+
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#0f172a')
+        doc.text(`Total de registros: ${rows.length}`, startX, y)
+
+        y += 16
+      }
+
+      function drawHeader() {
+        doc.roundedRect(startX, y, pageWidth, headerHeight, 4).fill('#1d4ed8')
+
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff')
+
+        let x = startX + 6
+        doc.text('Fecha', x, y + 7, { width: colFecha - 8 })
+        x += colFecha
+
+        doc.text('Tipo', x, y + 7, { width: colTipo - 8 })
+        x += colTipo
+
+        doc.text('Categoría', x, y + 7, { width: colCategoria - 8 })
+        x += colCategoria
+
+        doc.text('Nombre', x, y + 7, { width: colNombre - 8 })
+        x += colNombre
+
+        doc.text('Bodega', x, y + 7, { width: colBodega - 8 })
+        x += colBodega
+
+        doc.text('Placa', x, y + 7, { width: colPlaca - 8 })
+        x += colPlaca
+
+        doc.text('Dispositivo', x, y + 7, { width: colDispositivo - 8 })
+        x += colDispositivo
+
+        doc.text('Auditoría', x, y + 7, { width: colAuditoria - 8 })
+
+        y += headerHeight
+      }
+
+      function drawRow(
+        row: {
+          fechaHora: string
+          tipo: string
+          categoria: string
+          nombre: string | null
+          bodega: string | null
+          placa: string | null
+          dispositivoId: string
+          salidaSinEntrada: boolean
+        },
+        index: number
+      ) {
+        const isAnomalia = row.salidaSinEntrada === true
+        const bg = isAnomalia ? '#fef2f2' : index % 2 === 0 ? '#ffffff' : '#f8fafc'
+
+        doc.rect(startX, y, pageWidth, rowHeight).fillAndStroke(bg, '#e2e8f0')
+
+        doc.fillColor('#0f172a').font('Helvetica').fontSize(8.5)
+
+        let x = startX + 6
+        doc.text(fmtDate(row.fechaHora), x, y + 7, { width: colFecha - 8, ellipsis: true })
+        x += colFecha
+
+        doc.text(row.tipo, x, y + 7, { width: colTipo - 8, ellipsis: true })
+        x += colTipo
+
+        doc.text(row.categoria, x, y + 7, { width: colCategoria - 8, ellipsis: true })
+        x += colCategoria
+
+        doc.text(fmt(row.nombre), x, y + 7, { width: colNombre - 8, ellipsis: true })
+        x += colNombre
+
+        doc.text(fmt(row.bodega), x, y + 7, { width: colBodega - 8, ellipsis: true })
+        x += colBodega
+
+        doc.text(fmt(row.placa), x, y + 7, { width: colPlaca - 8, ellipsis: true })
+        x += colPlaca
+
+        doc.text(fmt(row.dispositivoId), x, y + 7, { width: colDispositivo - 8, ellipsis: true })
+        x += colDispositivo
+
+        if (isAnomalia) {
+          doc.fillColor('#b91c1c').font('Helvetica-Bold')
+          doc.text('SALIDA SIN ENTRADA', x, y + 7, {
+            width: colAuditoria - 8,
+            ellipsis: true,
+          })
+        } else {
+          doc.fillColor('#94a3b8').font('Helvetica')
+          doc.text('-', x, y + 7, { width: colAuditoria - 8 })
+        }
+
+        y += rowHeight
+      }
+
+      function ensureSpace(nextHeight: number) {
+        const bottomLimit = doc.page.height - doc.page.margins.bottom
+        if (y + nextHeight > bottomLimit) {
+          doc.addPage({ size: 'A4', layout: 'landscape', margin: 36 })
+          y = doc.page.margins.top
+          drawTitle()
+          drawHeader()
+        }
+      }
+
+      drawTitle()
+      drawHeader()
+
+      rows.forEach((row, index) => {
+        ensureSpace(rowHeight)
+        drawRow(
+          {
+            fechaHora: row.fechaHora,
+            tipo: row.tipo,
+            categoria: row.categoria,
+            nombre: row.nombre,
+            bodega: row.bodega,
+            placa: row.placa,
+            dispositivoId: row.dispositivoId,
+            salidaSinEntrada: row.salidaSinEntrada,
+          },
+          index
+        )
+      })
+
+      if (rows.length === 0) {
+        ensureSpace(40)
+        doc.font('Helvetica').fontSize(11).fillColor('#64748b')
+        doc.text('No hay registros con los filtros actuales.', startX, y + 12)
       }
 
       doc.end()
@@ -331,6 +592,6 @@ export function registrosRoutes() {
       next(err)
     }
   })
-
+  
   return r
 }

@@ -1,127 +1,141 @@
-import Link from "next/link";
-import { cleanSearchParams } from "@/lib/cleanSearchParams";
-import { apiGet } from "@/lib/api";
+import Link from 'next/link'
+import { cleanSearchParams } from '@/lib/cleanSearchParams'
+import { apiGet } from '@/lib/api'
+import { SectionHeader } from '@/components/SectionHeader'
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>
 
 type PageProps = {
-  searchParams: SearchParams;
-};
+  searchParams: SearchParams
+}
 
 type RegistroItem = {
-  id: string;
-  tipo: "ENTRADA" | "SALIDA";
-  tipoEntidad: "PEATON" | "VEHICULO";
-  categoria: "EMPLEADO" | "PROVEEDOR" | "VISITANTE";
-  nombre: string | null;
-  noEmpleado: string | null;
-  empresa: string | null;
-  bodega: string | null;
-  asunto: string | null;
-  placa: string | null;
-  fechaHora: string;
-  dispositivoId: string;
-  salidaSinEntrada: boolean;
-};
+  id: string
+  tipo: 'ENTRADA' | 'SALIDA'
+  tipoEntidad: 'PEATON' | 'VEHICULO'
+  categoria: 'EMPLEADO' | 'PROVEEDOR' | 'VISITANTE'
+  nombre: string | null
+  noEmpleado: string | null
+  empresa: string | null
+  bodega: string | null
+  asunto: string | null
+  placa: string | null
+  fechaHora: string
+  dispositivoId: string
+  salidaSinEntrada: boolean
+}
 
 type RegistrosResponse = {
-  total: number;
-  limit: number;
-  offset: number;
-  items: RegistroItem[];
-};
+  total: number
+  limit: number
+  offset: number
+  items: RegistroItem[]
+}
 
 function withParams(
   basePath: string,
   sp: URLSearchParams,
   patch: Record<string, string | null>
 ) {
-  const next = new URLSearchParams(sp.toString());
+  const next = new URLSearchParams(sp.toString())
 
   for (const [k, v] of Object.entries(patch)) {
-    if (v === null) next.delete(k);
-    else next.set(k, v);
+    if (v === null) next.delete(k)
+    else next.set(k, v)
   }
 
-  const qs = next.toString();
-  return qs ? `${basePath}?${qs}` : basePath;
+  const qs = next.toString()
+  return qs ? `${basePath}?${qs}` : basePath
 }
 
 function formatDateTime(value: string) {
   try {
-    return new Date(value).toLocaleString("es-MX");
+    return new Date(value).toLocaleString('es-MX')
   } catch {
-    return value;
+    return value
   }
 }
 
 function isoToLocalInput(value: string) {
   try {
-    const d = new Date(value);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mi = String(d.getMinutes()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+    const d = new Date(value)
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mi = String(d.getMinutes()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
   } catch {
-    return "";
+    return ''
   }
 }
 
+function TipoBadge({ tipo }: { tipo: RegistroItem['tipo'] }) {
+  return tipo === 'ENTRADA' ? (
+    <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+      ENTRADA
+    </span>
+  ) : (
+    <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+      SALIDA
+    </span>
+  )
+}
+
 export default async function RegistrosPage({ searchParams }: PageProps) {
-  const resolvedSearchParams = await searchParams;
-  const sp = cleanSearchParams(resolvedSearchParams);
+  const resolvedSearchParams = await searchParams
+  const sp = cleanSearchParams(resolvedSearchParams)
 
-  const limit = Number(sp.get("limit") ?? "50");
-  const offset = Number(sp.get("offset") ?? "0");
+  const limit = Number(sp.get('limit') ?? '50')
+  const offset = Number(sp.get('offset') ?? '0')
 
-  if (!sp.get("limit")) sp.set("limit", String(Number.isFinite(limit) ? limit : 50));
-  if (!sp.get("offset")) sp.set("offset", String(Number.isFinite(offset) ? offset : 0));
+  if (!sp.get('limit')) sp.set('limit', String(Number.isFinite(limit) ? limit : 50))
+  if (!sp.get('offset')) sp.set('offset', String(Number.isFinite(offset) ? offset : 0))
 
-  const q = sp.get("q") ?? "";
-  const tipo = sp.get("tipo") ?? "";
-  const categoria = sp.get("categoria") ?? "";
-  const dispositivoId = sp.get("dispositivoId") ?? "";
-  const bodega = sp.get("bodega") ?? "";
-  const from = sp.get("from") ?? "";
-  const to = sp.get("to") ?? "";
+  const q = sp.get('q') ?? ''
+  const tipo = sp.get('tipo') ?? ''
+  const categoria = sp.get('categoria') ?? ''
+  const dispositivoId = sp.get('dispositivoId') ?? ''
+  const bodega = sp.get('bodega') ?? ''
+  const from = sp.get('from') ?? ''
+  const to = sp.get('to') ?? ''
 
   const hoy =
-    sp.has("hoy") && (sp.get("hoy") === "1" || sp.get("hoy") === "true");
+    sp.has('hoy') && (sp.get('hoy') === '1' || sp.get('hoy') === 'true')
 
   const salidaSinEntrada =
-    sp.has("salidaSinEntrada") &&
-    (sp.get("salidaSinEntrada") === "1" || sp.get("salidaSinEntrada") === "true");
+    sp.has('salidaSinEntrada') &&
+    (sp.get('salidaSinEntrada') === '1' || sp.get('salidaSinEntrada') === 'true')
 
-  const query = sp.toString();
+  const query = sp.toString()
 
-  const data = await apiGet<RegistrosResponse>(`/registros?${query}`);
+  const data = await apiGet<RegistrosResponse>(`/registros?${query}`)
 
-  const exportXlsxUrl = `/api/registros/export.xlsx?${query}`;
-  const exportPdfUrl = `/api/registros/export.pdf?${query}`;
+  const exportXlsxUrl = `/api/registros/export.xlsx?${query}`
+  const exportPdfUrl = `/api/registros/export.pdf?${query}`
 
-  const hasPrev = data.offset > 0;
-  const hasNext = data.offset + data.limit < data.total;
+  const hasPrev = data.offset > 0
+  const hasNext = data.offset + data.limit < data.total
 
-  const prevOffset = Math.max(0, data.offset - data.limit);
-  const nextOffset = data.offset + data.limit;
+  const prevOffset = Math.max(0, data.offset - data.limit)
+  const nextOffset = data.offset + data.limit
 
-  const prevHref = withParams("/registros", sp, { offset: String(prevOffset) });
-  const nextHref = withParams("/registros", sp, { offset: String(nextOffset) });
+  const prevHref = withParams('/registros', sp, { offset: String(prevOffset) })
+  const nextHref = withParams('/registros', sp, { offset: String(nextOffset) })
 
   return (
-    <div className="mx-auto max-w-7xl p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Registros</h1>
-          <p className="text-sm text-slate-500">
-            Historial de accesos. Total:{" "}
-            <span className="font-medium text-slate-900">{data.total}</span>
-          </p>
-        </div>
+    <div className="mx-auto max-w-7xl space-y-4 p-6">
+      <div className="space-y-4">
+        <SectionHeader
+          title="Registros"
+          description={`Historial de accesos. Total: ${data.total}`}
+          actions={[
+            { href: '/dashboard', label: 'Dashboard' },
+            { href: '/personas', label: 'Personas' },
+          ]}
+        />
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <a
             href={exportXlsxUrl}
             className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -208,7 +222,7 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
             <input
               type="datetime-local"
               name="from"
-              defaultValue={from ? isoToLocalInput(from) : ""}
+              defaultValue={from ? isoToLocalInput(from) : ''}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
@@ -218,7 +232,7 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
             <input
               type="datetime-local"
               name="to"
-              defaultValue={to ? isoToLocalInput(to) : ""}
+              defaultValue={to ? isoToLocalInput(to) : ''}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
@@ -263,98 +277,93 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
             </Link>
           </div>
         </div>
-
-        <p className="mt-3 text-xs text-slate-500">
-          Usa <strong>Desde</strong> y <strong>Hasta</strong> para consultas históricas.
-          El filtro <strong>Hoy</strong> solo aplica si lo marcas.
-        </p>
       </form>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium">Fecha</th>
-              <th className="px-4 py-3 text-left font-medium">Tipo</th>
-              <th className="px-4 py-3 text-left font-medium">Categoría</th>
-              <th className="px-4 py-3 text-left font-medium">Nombre</th>
-              <th className="px-4 py-3 text-left font-medium">Bodega</th>
-              <th className="px-4 py-3 text-left font-medium">Placa</th>
-              <th className="px-4 py-3 text-left font-medium">Dispositivo</th>
-              <th className="px-4 py-3 text-left font-medium">Auditoría</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.items.map((it) => (
-              <tr key={it.id} className="border-t border-slate-100">
-                <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(it.fechaHora)}</td>
-                <td className="px-4 py-3">{it.tipo}</td>
-                <td className="px-4 py-3">{it.categoria}</td>
-                <td className="px-4 py-3">{it.nombre ?? "-"}</td>
-                <td className="px-4 py-3">{it.bodega ?? "-"}</td>
-                <td className="px-4 py-3">{it.placa ?? "-"}</td>
-                <td className="px-4 py-3">{it.dispositivoId}</td>
-                <td className="px-4 py-3">
-                  {it.salidaSinEntrada ? (
-                    <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
-                      SALIDA SIN ENTRADA
-                    </span>
-                  ) : (
-                    <span className="text-slate-400">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-
-            {data.items.length === 0 && (
+        <div className="overflow-x-auto">
+          <table className="min-w-[1200px] w-full text-sm">
+            <thead className="bg-slate-50 text-slate-700">
               <tr>
-                <td className="px-4 py-6 text-center text-slate-500" colSpan={8}>
-                  No hay registros con los filtros actuales.
-                </td>
+                <th className="px-4 py-3 text-left font-semibold">Fecha</th>
+                <th className="px-4 py-3 text-left font-semibold">Tipo</th>
+                <th className="px-4 py-3 text-left font-semibold">Entidad</th>
+                <th className="px-4 py-3 text-left font-semibold">Categoría</th>
+                <th className="px-4 py-3 text-left font-semibold">Nombre</th>
+                <th className="px-4 py-3 text-left font-semibold">No. Empleado</th>
+                <th className="px-4 py-3 text-left font-semibold">Empresa</th>
+                <th className="px-4 py-3 text-left font-semibold">Bodega</th>
+                <th className="px-4 py-3 text-left font-semibold">Placa</th>
+                <th className="px-4 py-3 text-left font-semibold">Asunto</th>
+                <th className="px-4 py-3 text-left font-semibold">Dispositivo</th>
+                <th className="px-4 py-3 text-left font-semibold">Bandera</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+
+            <tbody className="divide-y divide-slate-100">
+              {data.items.map((it) => (
+                <tr key={it.id} className="hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                    {formatDateTime(it.fechaHora)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <TipoBadge tipo={it.tipo} />
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">{it.tipoEntidad}</td>
+                  <td className="px-4 py-3 text-slate-700">{it.categoria}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900">{it.nombre ?? '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{it.noEmpleado ?? '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{it.empresa ?? '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{it.bodega ?? '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{it.placa ?? '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{it.asunto ?? '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{it.dispositivoId}</td>
+                  <td className="px-4 py-3">
+                    {it.salidaSinEntrada ? (
+                      <span className="inline-flex rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                        SALIDA SIN ENTRADA
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+
+              {!data.items.length && (
+                <tr>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={12}>
+                    No hay registros para esos filtros.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-600">
-          Mostrando{" "}
-          <span className="font-medium text-slate-900">
-            {data.items.length ? data.offset + 1 : 0}
-          </span>{" "}
-          -{" "}
-          <span className="font-medium text-slate-900">
-            {Math.min(data.offset + data.items.length, data.total)}
-          </span>{" "}
-          de <span className="font-medium text-slate-900">{data.total}</span>
-        </div>
+        {hasPrev ? (
+          <Link
+            href={prevHref}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            ← Anterior
+          </Link>
+        ) : (
+          <span />
+        )}
 
-        <div className="flex gap-2">
+        {hasNext ? (
           <Link
-            href={hasPrev ? prevHref : "#"}
-            aria-disabled={!hasPrev}
-            className={`rounded-lg border px-3 py-2 text-sm font-medium ${
-              hasPrev
-                ? "border-slate-200 bg-white hover:bg-slate-50"
-                : "pointer-events-none border-slate-100 bg-slate-50 text-slate-400"
-            }`}
+            href={nextHref}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
-            Anterior
+            Siguiente →
           </Link>
-          <Link
-            href={hasNext ? nextHref : "#"}
-            aria-disabled={!hasNext}
-            className={`rounded-lg border px-3 py-2 text-sm font-medium ${
-              hasNext
-                ? "border-slate-200 bg-white hover:bg-slate-50"
-                : "pointer-events-none border-slate-100 bg-slate-50 text-slate-400"
-            }`}
-          >
-            Siguiente
-          </Link>
-        </div>
+        ) : (
+          <span />
+        )}
       </div>
     </div>
-  );
+  )
 }

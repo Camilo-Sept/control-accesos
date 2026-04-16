@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { pool } from '../db/pool'
+import { requireAdminJwt } from '../middlewares/adminAuth'
+
 
 const TZ_DEFAULT = 'America/Ciudad_Juarez' // Juárez/El Paso
 
@@ -40,6 +42,9 @@ function parseBool(v: any): boolean {
 
 export function dashboardRoutes() {
   const r = Router()
+
+  // ✅ protege TODO /dashboard/*
+  r.use(requireAdminJwt)
 
   // GET /dashboard/stats
   r.get('/stats', async (req, res, next) => {

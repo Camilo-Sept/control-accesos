@@ -34,4 +34,46 @@ android/build/
 .vite/
 .cache/
 
-docker/
+# envs
+backend/.env
+backend/.env.local
+web-admin/.env
+web-admin/.env.local
+mobile-app/.env
+mobile-app/.env.local
+
+# logs
+*.log
+npm-debug.log*
+
+# node
+**/node_modules
+
+# build
+backend/dist
+web-admin/.next
+mobile-app/dist
+
+# OS
+.DS_Store
+# envs
+backend/.env
+backend/.env.local
+web-admin/.env
+web-admin/.env.local
+mobile-app/.env
+mobile-app/.env.local
+
+# node
+**/node_modules
+
+# builds
+backend/dist
+web-admin/.next
+mobile-app/dist
+
+# OS / editor
+.DS_Store
+.vscode
+*.log
+npm-debug.log*

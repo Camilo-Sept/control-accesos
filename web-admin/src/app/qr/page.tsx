@@ -1,104 +1,101 @@
-'use client';
+'use client'
 
-import { useMemo, useState } from 'react';
-import QRCode from 'react-qr-code';
+import { useMemo, useState } from 'react'
+import QRCode from 'react-qr-code'
+import { SectionHeader } from '@/components/SectionHeader'
 
-type TipoQR = 'E' | 'V'; // E = empleado a pie, V = empleado en vehículo
-type TamanoQR = 'CHICO' | 'MEDIANO' | 'GRANDE';
+type TipoQR = 'E' | 'V'
+type TamanoQR = 'CHICO' | 'MEDIANO' | 'GRANDE'
 
 export default function QRPage() {
-  const [tipoQR, setTipoQR] = useState<TipoQR>('E');
-  const [tamanoQR, setTamanoQR] = useState<TamanoQR>('MEDIANO');
+  const [tipoQR, setTipoQR] = useState<TipoQR>('E')
+  const [tamanoQR, setTamanoQR] = useState<TamanoQR>('MEDIANO')
 
-  const [noEmpleado, setNoEmpleado] = useState('');
-  const [nombre, setNombre] = useState('');
-  const [placas, setPlacas] = useState('');
-  const [mensaje, setMensaje] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [noEmpleado, setNoEmpleado] = useState('')
+  const [nombre, setNombre] = useState('')
+  const [placas, setPlacas] = useState('')
+  const [mensaje, setMensaje] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  // Contenido que va a leer la tablet
   const qrPayload = useMemo(() => {
-    const noEmp = noEmpleado.trim().toUpperCase();
-    const nom = nombre.trim().toUpperCase();
-    const plc = placas.trim().toUpperCase();
+    const noEmp = noEmpleado.trim().toUpperCase()
+    const nom = nombre.trim().toUpperCase()
+    const plc = placas.trim().toUpperCase()
 
-    if (!noEmp || !nom) return '';
+    if (!noEmp || !nom) return ''
 
     if (tipoQR === 'E') {
-      return `IMPULSO|1|E|${noEmp}|${nom}`;
+      return `IMPULSO|1|E|${noEmp}|${nom}`
     }
 
-    if (!plc) return '';
-    return `IMPULSO|1|V|${noEmp}|${nom}|${plc}`;
-  }, [tipoQR, noEmpleado, nombre, placas]);
+    if (!plc) return ''
+    return `IMPULSO|1|V|${noEmp}|${nom}|${plc}`
+  }, [tipoQR, noEmpleado, nombre, placas])
 
-  // Tamaño en px para pantalla
   const qrSizePx = useMemo(() => {
     switch (tamanoQR) {
       case 'CHICO':
-        return 120;
+        return 120
       case 'MEDIANO':
-        return 200;
+        return 200
       case 'GRANDE':
-        return 320;
+        return 320
       default:
-        return 200;
+        return 200
     }
-  }, [tamanoQR]);
+  }, [tamanoQR])
 
   const handleGenerar = () => {
-    setMensaje(null);
-    setError(null);
+    setMensaje(null)
+    setError(null)
 
-    const noEmp = noEmpleado.trim().toUpperCase();
-    const nom = nombre.trim().toUpperCase();
-    const plc = placas.trim().toUpperCase();
+    const noEmp = noEmpleado.trim().toUpperCase()
+    const nom = nombre.trim().toUpperCase()
+    const plc = placas.trim().toUpperCase()
 
     if (!noEmp) {
-      setError('El No. de empleado es obligatorio.');
-      return;
+      setError('El No. de empleado es obligatorio.')
+      return
     }
     if (!nom) {
-      setError('El nombre es obligatorio.');
-      return;
+      setError('El nombre es obligatorio.')
+      return
     }
     if (tipoQR === 'V' && !plc) {
-      setError('Las placas son obligatorias para QR de vehículo.');
-      return;
+      setError('Las placas son obligatorias para QR de vehículo.')
+      return
     }
     if (!qrPayload) {
-      setError('No se pudo generar el contenido del QR.');
-      return;
+      setError('No se pudo generar el contenido del QR.')
+      return
     }
 
-    setMensaje('QR generado correctamente. Puedes imprimirlo.');
-  };
+    setMensaje('QR generado correctamente. Puedes imprimirlo.')
+  }
 
   const handleLimpiar = () => {
-    setNoEmpleado('');
-    setNombre('');
-    setPlacas('');
-    setMensaje(null);
-    setError(null);
-  };
+    setNoEmpleado('')
+    setNombre('')
+    setPlacas('')
+    setMensaje(null)
+    setError(null)
+  }
 
-  // Imprimir SOLO QR + nombre en una ventanita
   const handleImprimir = () => {
-    if (!qrPayload) return;
+    if (!qrPayload) return
 
-    const qrElement = document.getElementById('qr-print-area');
-    if (!qrElement) return;
+    const qrElement = document.getElementById('qr-print-area')
+    if (!qrElement) return
 
-    const svgHtml = qrElement.innerHTML;
+    const svgHtml = qrElement.innerHTML
 
-    // Tamaño físico aproximado en cm para impresión
-    let sizeCm = '4cm';
-    if (tamanoQR === 'CHICO') sizeCm = '2cm';
-    if (tamanoQR === 'MEDIANO') sizeCm = '4cm';
-    if (tamanoQR === 'GRANDE') sizeCm = '12cm';
+    let sizeCm = '4cm'
+    if (tamanoQR === 'CHICO') sizeCm = '2cm'
+    if (tamanoQR === 'MEDIANO') sizeCm = '4cm'
+    if (tamanoQR === 'GRANDE') sizeCm = '12cm'
 
-    const printWindow = window.open('', '_blank', 'width=600,height=600');
-    if (!printWindow) return;
+    const printWindow = window.open('', '_blank', 'width=600,height=600')
+    if (!printWindow) return
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -116,8 +113,7 @@ export default function QRPage() {
               justify-content: center;
               align-items: center;
               height: 100vh;
-              font-family: system-ui, -apple-system, BlinkMacSystemFont,
-                "Segoe UI", sans-serif;
+              font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
               background: #ffffff;
             }
             .qr-wrapper {
@@ -158,63 +154,67 @@ export default function QRPage() {
           </div>
         </body>
       </html>
-    `);
+    `)
 
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
-  };
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+    printWindow.close()
+  }
 
   const descripcionTamano = (t: TamanoQR): string => {
     switch (t) {
       case 'CHICO':
-        return 'Gafete / llavero (aprox 2×2 cm)';
+        return 'Gafete / llavero (aprox 2×2 cm)'
       case 'MEDIANO':
-        return 'Tarjeta / gafete grande (aprox 4×4 cm)';
+        return 'Tarjeta / gafete grande (aprox 4×4 cm)'
       case 'GRANDE':
-        return 'Para parabrisas / carro (más grande)';
+        return 'Para parabrisas / carro (más grande)'
       default:
-        return '';
+        return ''
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center py-8 px-4">
-      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200">
-        {/* Header tipo app móvil */}
-        <div className="bg-blue-600 rounded-t-2xl px-4 py-3 flex items-center justify-center">
-          <h1 className="text-lg md:text-xl font-bold text-white tracking-wide">
+    <div className="mx-auto max-w-7xl space-y-5 p-6">
+      <SectionHeader
+        title="Generador QR"
+        description="Genera QR para empleados con el formato que la tablet sabe leer."
+        actions={[
+          { href: '/dashboard', label: 'Dashboard' },
+          { href: '/personas', label: 'Personas' },
+        ]}
+      />
+
+      <div className="w-full max-w-4xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-center rounded-t-2xl bg-blue-600 px-4 py-3">
+          <h1 className="text-lg font-bold tracking-wide text-white md:text-xl">
             CONTROL DE ACCESOS · GENERADOR QR
           </h1>
         </div>
 
         <div className="p-4 md:p-6">
           <div className="mb-4">
-            <p className="text-sm md:text-base text-slate-600 text-center">
+            <p className="text-center text-sm text-slate-600 md:text-base">
               Genera QR para empleados con el formato que la tablet sabe leer.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* FORMULARIO */}
+          <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-4">
-              {/* Tipo de QR */}
-              <div className="border border-slate-200 rounded-xl shadow-sm">
-                <div className="border-b border-slate-200 px-4 py-2 bg-slate-50 rounded-t-xl">
-                  <h2 className="text-sm font-semibold text-slate-700">
-                    Tipo de QR
-                  </h2>
+              <div className="rounded-xl border border-slate-200 shadow-sm">
+                <div className="rounded-t-xl border-b border-slate-200 bg-slate-50 px-4 py-2">
+                  <h2 className="text-sm font-semibold text-slate-700">Tipo de QR</h2>
                 </div>
                 <div className="px-4 py-3">
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => setTipoQR('E')}
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ${
+                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${
                         tipoQR === 'E'
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-slate-700 border-slate-300'
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-slate-300 bg-white text-slate-700'
                       }`}
                     >
                       EMPLEADO A PIE
@@ -222,10 +222,10 @@ export default function QRPage() {
                     <button
                       type="button"
                       onClick={() => setTipoQR('V')}
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ${
+                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${
                         tipoQR === 'V'
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-slate-700 border-slate-300'
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-slate-300 bg-white text-slate-700'
                       }`}
                     >
                       EMPLEADO EN VEHÍCULO
@@ -237,200 +237,168 @@ export default function QRPage() {
                 </div>
               </div>
 
-              {/* Datos del empleado */}
-              <div className="border border-slate-200 rounded-xl shadow-sm">
-                <div className="border-b border-slate-200 px-4 py-2 bg-slate-50 rounded-t-xl">
-                  <h2 className="text-sm font-semibold text-slate-700">
-                    Datos del empleado
-                  </h2>
+              <div className="rounded-xl border border-slate-200 shadow-sm">
+                <div className="rounded-t-xl border-b border-slate-200 bg-slate-50 px-4 py-2">
+                  <h2 className="text-sm font-semibold text-slate-700">Datos del empleado</h2>
                 </div>
-                <div className="px-4 py-3 space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+                <div className="space-y-3 px-4 py-3">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      <label className="mb-1 block text-xs font-semibold text-slate-700">
                         No. de empleado <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
                         value={noEmpleado}
-                        onChange={(e) =>
-                          setNoEmpleado(e.target.value.toUpperCase())
-                        }
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        onChange={(e) => setNoEmpleado(e.target.value.toUpperCase())}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="EJ. 12345"
                       />
                     </div>
+
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Nombre completo{' '}
-                        <span className="text-red-500">*</span>
+                      <label className="mb-1 block text-xs font-semibold text-slate-700">
+                        Tamaño QR
                       </label>
-                      <input
-                        type="text"
-                        value={nombre}
-                        onChange={(e) =>
-                          setNombre(e.target.value.toUpperCase())
-                        }
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="EJ. JUAN PEREZ"
-                      />
+                      <select
+                        value={tamanoQR}
+                        onChange={(e) => setTamanoQR(e.target.value as TamanoQR)}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="CHICO">CHICO</option>
+                        <option value="MEDIANO">MEDIANO</option>
+                        <option value="GRANDE">GRANDE</option>
+                      </select>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-700">
+                      Nombre <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={nombre}
+                      onChange={(e) => setNombre(e.target.value.toUpperCase())}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="NOMBRE COMPLETO"
+                    />
                   </div>
 
                   {tipoQR === 'V' && (
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      <label className="mb-1 block text-xs font-semibold text-slate-700">
                         Placas <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
                         value={placas}
-                        onChange={(e) =>
-                          setPlacas(e.target.value.toUpperCase())
-                        }
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="EJ. ABC123"
+                        onChange={(e) => setPlacas(e.target.value.toUpperCase())}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="ABC123A"
                       />
                     </div>
                   )}
 
-                  <p className="text-xs text-slate-500">
-                    Los datos se convierten a MAYÚSCULAS para que coincidan con
-                    lo que espera la tablet.
-                  </p>
-                </div>
-              </div>
+                  <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                    <div className="font-semibold text-slate-700">Uso sugerido</div>
+                    <div className="mt-1">{descripcionTamano(tamanoQR)}</div>
+                  </div>
 
-              {/* Tamaño */}
-              <div className="border border-slate-200 rounded-xl shadow-sm">
-                <div className="border-b border-slate-200 px-4 py-2 bg-slate-50 rounded-t-xl">
-                  <h2 className="text-sm font-semibold text-slate-700">
-                    Tamaño para imprimir
-                  </h2>
-                </div>
-                <div className="px-4 py-3 space-y-2">
-                  <div className="flex gap-2">
+                  {error && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      {error}
+                    </div>
+                  )}
+
+                  {mensaje && (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      {mensaje}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => setTamanoQR('CHICO')}
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ${
-                        tamanoQR === 'CHICO'
-                          ? 'bg-emerald-500 text-white border-emerald-500'
-                          : 'bg-white text-slate-700 border-slate-300'
-                      }`}
+                      onClick={handleGenerar}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                     >
-                      CHICO
+                      Generar QR
                     </button>
+
                     <button
                       type="button"
-                      onClick={() => setTamanoQR('MEDIANO')}
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ${
-                        tamanoQR === 'MEDIANO'
-                          ? 'bg-emerald-500 text-white border-emerald-500'
-                          : 'bg-white text-slate-700 border-slate-300'
-                      }`}
+                      onClick={handleImprimir}
+                      disabled={!qrPayload}
+                      className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      MEDIANO
+                      Imprimir
                     </button>
+
                     <button
                       type="button"
-                      onClick={() => setTamanoQR('GRANDE')}
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ${
-                        tamanoQR === 'GRANDE'
-                          ? 'bg-emerald-500 text-white border-emerald-500'
-                          : 'bg-white text-slate-700 border-slate-300'
-                      }`}
+                      onClick={handleLimpiar}
+                      className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      GRANDE
+                      Limpiar
                     </button>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    {descripcionTamano(tamanoQR)}
-                  </p>
                 </div>
-              </div>
-
-              {error && (
-                <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                  {error}
-                </div>
-              )}
-              {mensaje && (
-                <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">
-                  {mensaje}
-                </div>
-              )}
-
-              <div className="flex gap-3 mt-1">
-                <button
-                  type="button"
-                  onClick={handleGenerar}
-                  className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
-                >
-                  GENERAR QR
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLimpiar}
-                  className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition"
-                >
-                  LIMPIAR
-                </button>
               </div>
             </div>
 
-            {/* QR + botón imprimir */}
-            <div className="flex flex-col items-center gap-3">
-              <div className="border border-slate-200 rounded-xl shadow-sm w-full h-full flex flex-col items-center justify-between p-4">
-                <h2 className="text-sm font-semibold text-slate-700 mb-2">
-                  Vista previa
-                </h2>
+            <div className="space-y-4">
+              <div className="rounded-xl border border-slate-200 shadow-sm">
+                <div className="rounded-t-xl border-b border-slate-200 bg-slate-50 px-4 py-2">
+                  <h2 className="text-sm font-semibold text-slate-700">Vista previa</h2>
+                </div>
 
-                <div
-                  id="qr-print-area"
-                  className="bg-white rounded-2xl p-4 border border-slate-200 flex flex-col items-center justify-center gap-2"
-                >
+                <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 px-4 py-6">
                   {qrPayload ? (
                     <>
-                      <QRCode
-                        value={qrPayload}
-                        size={qrSizePx}
-                        bgColor="#ffffff"
-                        fgColor="#000000"
-                      />
-                      {/* Aquí solo mostramos el NOMBRE debajo del QR */}
-                      {nombre.trim() && (
-                        <div className="mt-2 text-sm font-semibold text-slate-800 text-center">
-                          {nombre.trim().toUpperCase()}
-                        </div>
-                      )}
+                      <div
+                        id="qr-print-area"
+                        className="rounded-xl border border-slate-200 bg-white p-4"
+                      >
+                        <QRCode value={qrPayload} size={qrSizePx} />
+                      </div>
+
+                      <div className="space-y-1 text-center">
+                        <p className="text-base font-semibold text-slate-900">
+                          {nombre.trim().toUpperCase() || 'SIN NOMBRE'}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          {noEmpleado.trim().toUpperCase() || 'SIN NÚMERO'}
+                        </p>
+                        {tipoQR === 'V' && placas.trim() ? (
+                          <p className="text-sm text-slate-600">
+                            PLACAS: {placas.trim().toUpperCase()}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="w-full rounded-lg bg-slate-50 p-3">
+                        <p className="mb-1 text-xs font-semibold text-slate-700">Payload</p>
+                        <p className="break-all text-xs text-slate-600">{qrPayload}</p>
+                      </div>
                     </>
                   ) : (
-                    <div className="w-[200px] h-[200px] flex items-center justify-center text-xs text-slate-400 text-center px-4">
-                      Completa los datos y presiona
-                      <br />
-                      <strong>&quot;GENERAR QR&quot;</strong>
+                    <div className="space-y-2 text-center">
+                      <div className="mx-auto flex h-48 w-48 items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-sm text-slate-400">
+                        QR SIN GENERAR
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        Captura los datos y genera el QR para ver la vista previa.
+                      </p>
                     </div>
                   )}
                 </div>
-
-                <button
-                  type="button"
-                  disabled={!qrPayload}
-                  onClick={handleImprimir}
-                  className={`mt-3 px-4 py-2 text-sm font-semibold rounded-lg border transition ${
-                    qrPayload
-                      ? 'bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600'
-                      : 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed'
-                  }`}
-                >
-                  IMPRIMIR SOLO EL QR
-                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }

@@ -39,6 +39,12 @@ import {
 import { Camera, CameraResultType } from '@capacitor/camera';
 import { sqliteService } from '../services/sqliteService';
 import { syncService } from '../services/syncService';
+import { DEVICE_ID } from '../services/apiConfig';
+import {
+  buscarPersonaPorQr,
+  isCanonicalPersonaQr,
+  mapTipoPersonaToCategoria,
+} from '../services/personasApi';
 import {
   TipoRegistro,
   TipoEntidad,
@@ -46,7 +52,7 @@ import {
   RegistroLocal,
 } from '../models/registro';
 
-const DISPOSITIVO_ID = 'tablet-puerta-1';
+const DISPOSITIVO_ID = DEVICE_ID;
 
 type ModoCaptura = 'QR' | 'MANUAL';
 type SelectorModo = 'ADENTRO' | 'HISTORICO' | null;
@@ -58,10 +64,8 @@ const RegistroPage: React.FC = () => {
 
   const [tipoRegistro, setTipoRegistro] = useState<TipoRegistro>('ENTRADA');
   const [tipoEntidad, setTipoEntidad] = useState<TipoEntidad>('PEATON');
-  const [categoria, setCategoria] =
-    useState<CategoriaPersona>('EMPLEADO');
-  const [modoCaptura, setModoCaptura] =
-    useState<ModoCaptura>('MANUAL');
+  const [categoria, setCategoria] = useState<CategoriaPersona>('EMPLEADO');
+  const [modoCaptura, setModoCaptura] = useState<ModoCaptura>('MANUAL');
 
   // Datos persona / conductor
   const [nombre, setNombre] = useState('');
@@ -77,6 +81,9 @@ const RegistroPage: React.FC = () => {
 
   // Foto de placas
   const [fotoPlacasPath, setFotoPlacasPath] = useState<string | null>(null);
+
+  // Último QR leído real
+  const [ultimoQrLeido, setUltimoQrLeido] = useState('');
 
   // Selector de empleados (adentro o histórico)
   const [empleadosLista, setEmpleadosLista] = useState<RegistroLocal[]>([]);
@@ -138,6 +145,7 @@ const RegistroPage: React.FC = () => {
     setColor('');
     setPlaca('');
     setFotoPlacasPath(null);
+    setUltimoQrLeido('');
   };
 
   // === VALIDACIONES BASE ===
@@ -284,6 +292,88 @@ const RegistroPage: React.FC = () => {
     }
   };
 
+  const autollenarPorQrCanonico = async (qr: string) => {
+    try {
+      const persona = await buscarPersonaPorQr(qr);
+      const categoriaMapeada = mapTipoPersonaToCategoria(persona.tipoPersona);
+
+      if (!categoriaMapeada) {
+        setMensaje(
+          `El tipo ${persona.tipoPersona} todavía no está soportado en la tablet.`
+        );
+        return;
+      }
+
+      setModoCaptura('QR');
+      setTipoEntidad('PEATON');
+      setCategoria(categoriaMapeada);
+
+      setNombre((persona.nombre ?? '').toUpperCase());
+      setNoEmpleado((persona.noEmpleado ?? '').toUpperCase());
+      setEmpresa((persona.empresa ?? '').toUpperCase());
+      setBodega((persona.bodega ?? '').toUpperCase());
+
+      // Para no arrastrar datos de vehículo
+      setPlaca('');
+      setModelo('');
+      setColor('');
+      setFotoPlacasPath(null);
+
+      setMensaje(`Datos cargados desde QR canónico: ${(persona.nombre ?? '').toUpperCase()}`);
+    } catch (err) {
+      console.error('Error consultando QR canónico:', err);
+      setMensaje(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo consultar la persona por QR.'
+      );
+    }
+  };
+
+  // === AUTOLLENADO LOCAL ===
+  const autollenarPorPlaca = async (valor: string) => {
+    const limpia = valor.trim().toUpperCase();
+    if (!limpia) return;
+
+    const ultimo = await sqliteService.buscarUltimoPorPlacaHoy(limpia);
+    if (!ultimo) return;
+
+    setNombre((ultimo.nombre ?? '').toUpperCase());
+    setNoEmpleado((ultimo.noEmpleado ?? '').toUpperCase());
+    setEmpresa((ultimo.empresa ?? '').toUpperCase());
+    setBodega((ultimo.bodega ?? '').toUpperCase());
+    setAsunto((ultimo.asunto ?? '').toUpperCase());
+    setModelo((ultimo.modelo ?? '').toUpperCase());
+    setColor((ultimo.color ?? '').toUpperCase());
+    setCategoria(ultimo.categoria);
+  };
+
+  const autollenarPorNoEmpleado = async (valor: string) => {
+    const limpio = valor.trim().toUpperCase();
+    if (!limpio) return;
+
+    const ultimo = await sqliteService.buscarUltimoPorNoEmpleadoHoy(limpio);
+    if (!ultimo) return;
+
+    setNombre((ultimo.nombre ?? '').toUpperCase());
+    setEmpresa((ultimo.empresa ?? '').toUpperCase());
+    setBodega((ultimo.bodega ?? '').toUpperCase());
+    setAsunto((ultimo.asunto ?? '').toUpperCase());
+  };
+
+  const autollenarPorPersona = async () => {
+    const n = nombre.trim().toUpperCase();
+    const e = empresa.trim().toUpperCase();
+    const b = bodega.trim().toUpperCase();
+
+    if (!n || !e || !b) return;
+
+    const ultimo = await sqliteService.buscarUltimoPorPersonaHoy(n, e, b);
+    if (!ultimo) return;
+
+    setAsunto((ultimo.asunto ?? '').toUpperCase());
+  };
+
   // === QR: procesar contenido ===
   const procesarQR = async (contenido: string) => {
     try {
@@ -293,6 +383,16 @@ const RegistroPage: React.FC = () => {
         return;
       }
 
+      setUltimoQrLeido(limpio);
+      setModoCaptura('QR');
+
+      // === NUEVO QR CANÓNICO ===
+      if (isCanonicalPersonaQr(limpio)) {
+        await autollenarPorQrCanonico(limpio);
+        return;
+      }
+
+      // === QR LEGACY ===
       const partes = limpio.split('|');
       if (partes.length < 5) {
         setMensaje('Formato de QR no reconocido.');
@@ -323,10 +423,9 @@ const RegistroPage: React.FC = () => {
         setNoEmpleado(noEmp);
         setNombre(nom);
 
-        // autollenar por empleado
         await autollenarPorNoEmpleado(noEmp);
 
-        setMensaje('Datos de empleado cargados desde QR. Revise y guarde.');
+        setMensaje('Datos de empleado cargados desde QR legacy. Revise y guarde.');
         return;
       }
 
@@ -354,7 +453,7 @@ const RegistroPage: React.FC = () => {
 
         await autollenarPorPlaca(placasQR);
 
-        setMensaje('Datos de vehículo cargados desde QR. Revise y guarde.');
+        setMensaje('Datos de vehículo cargados desde QR legacy. Revise y guarde.');
         return;
       }
 
@@ -417,7 +516,7 @@ const RegistroPage: React.FC = () => {
       await prepararSalida();
     }
 
-    const qrContenido = modoCaptura === 'QR' ? null : null;
+    const qrContenido = modoCaptura === 'QR' ? ultimoQrLeido || null : null;
 
     await sqliteService.insertarRegistro({
       tipo: tipoRegistro,
@@ -432,23 +531,18 @@ const RegistroPage: React.FC = () => {
       asunto: asuntoUpper || null,
 
       idVehiculo: null,
-      modelo:
-        tipoEntidad === 'VEHICULO' ? modeloUpper || null : null,
-      color:
-        tipoEntidad === 'VEHICULO' ? colorUpper || null : null,
-      placa:
-        tipoEntidad === 'VEHICULO'
-          ? placaUpper || null
-          : null,
-      fotoPlacasPath:
-        tipoEntidad === 'VEHICULO' ? fotoPlacasPath ?? null : null,
+      modelo: tipoEntidad === 'VEHICULO' ? modeloUpper || null : null,
+      color: tipoEntidad === 'VEHICULO' ? colorUpper || null : null,
+      placa: tipoEntidad === 'VEHICULO' ? placaUpper || null : null,
+      fotoPlacasPath: tipoEntidad === 'VEHICULO' ? fotoPlacasPath ?? null : null,
 
-      qrContenido: qrContenido,
+      qrContenido,
       dispositivoId: DISPOSITIVO_ID,
     });
 
     await actualizarPendientes();
     limpiarCampos();
+
     setMensaje(
       tipoRegistro === 'ENTRADA'
         ? 'ENTRADA guardada localmente (offline).'
@@ -472,53 +566,7 @@ const RegistroPage: React.FC = () => {
     }
   };
 
-  const etiquetaEntidad =
-    tipoEntidad === 'PEATON' ? 'Peatón' : 'Vehículo';
-
-  const autollenarPorPlaca = async (valor: string) => {
-    const limpia = valor.trim().toUpperCase();
-    if (!limpia) return;
-
-    const ultimo = await sqliteService.buscarUltimoPorPlacaHoy(limpia);
-    if (!ultimo) {
-      return;
-    }
-
-    setNombre((ultimo.nombre ?? '').toUpperCase());
-    setNoEmpleado((ultimo.noEmpleado ?? '').toUpperCase());
-    setEmpresa((ultimo.empresa ?? '').toUpperCase());
-    setBodega((ultimo.bodega ?? '').toUpperCase());
-    setAsunto((ultimo.asunto ?? '').toUpperCase());
-    setModelo((ultimo.modelo ?? '').toUpperCase());
-    setColor((ultimo.color ?? '').toUpperCase());
-    setCategoria(ultimo.categoria);
-  };
-
-  const autollenarPorNoEmpleado = async (valor: string) => {
-    const limpio = valor.trim().toUpperCase();
-    if (!limpio) return;
-
-    const ultimo = await sqliteService.buscarUltimoPorNoEmpleadoHoy(limpio);
-    if (!ultimo) return;
-
-    setNombre((ultimo.nombre ?? '').toUpperCase());
-    setEmpresa((ultimo.empresa ?? '').toUpperCase());
-    setBodega((ultimo.bodega ?? '').toUpperCase());
-    setAsunto((ultimo.asunto ?? '').toUpperCase());
-  };
-
-  const autollenarPorPersona = async () => {
-    const n = nombre.trim().toUpperCase();
-    const e = empresa.trim().toUpperCase();
-    const b = bodega.trim().toUpperCase();
-
-    if (!n || !e || !b) return;
-
-    const ultimo = await sqliteService.buscarUltimoPorPersonaHoy(n, e, b);
-    if (!ultimo) return;
-
-    setAsunto((ultimo.asunto ?? '').toUpperCase());
-  };
+  const etiquetaEntidad = tipoEntidad === 'PEATON' ? 'Peatón' : 'Vehículo';
 
   // === SELECTOR EMPLEADOS ADENTRO ===
   const abrirSelectorEmpleadoDentro = async () => {
