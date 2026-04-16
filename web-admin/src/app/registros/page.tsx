@@ -1,11 +1,35 @@
 import Link from "next/link";
 import { cleanSearchParams } from "@/lib/cleanSearchParams";
+import { apiGet } from "@/lib/api";
+
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 type PageProps = {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: SearchParams;
 };
 
-const API = process.env.NEXT_PUBLIC_API_BASE_URL!;
+type RegistroItem = {
+  id: string;
+  tipo: "ENTRADA" | "SALIDA";
+  tipoEntidad: "PEATON" | "VEHICULO";
+  categoria: "EMPLEADO" | "PROVEEDOR" | "VISITANTE";
+  nombre: string | null;
+  noEmpleado: string | null;
+  empresa: string | null;
+  bodega: string | null;
+  asunto: string | null;
+  placa: string | null;
+  fechaHora: string;
+  dispositivoId: string;
+  salidaSinEntrada: boolean;
+};
+
+type RegistrosResponse = {
+  total: number;
+  limit: number;
+  offset: number;
+  items: RegistroItem[];
+};
 
 function withParams(
   basePath: string,
@@ -13,58 +37,47 @@ function withParams(
   patch: Record<string, string | null>
 ) {
   const next = new URLSearchParams(sp.toString());
+
   for (const [k, v] of Object.entries(patch)) {
     if (v === null) next.delete(k);
     else next.set(k, v);
   }
+
   const qs = next.toString();
   return qs ? `${basePath}?${qs}` : basePath;
 }
 
-export default async function RegistrosPage({ searchParams }: PageProps) {
-  // ✅ Limpia params vacíos: q=, tipo=, etc.
-  const sp = cleanSearchParams(searchParams);
+function formatDateTime(value: string) {
+  try {
+    return new Date(value).toLocaleString("es-MX");
+  } catch {
+    return value;
+  }
+}
 
-  // defaults
+function isoToLocalInput(value: string) {
+  try {
+    const d = new Date(value);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mi = String(d.getMinutes()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  } catch {
+    return "";
+  }
+}
+
+export default async function RegistrosPage({ searchParams }: PageProps) {
+  const resolvedSearchParams = await searchParams;
+  const sp = cleanSearchParams(resolvedSearchParams);
+
   const limit = Number(sp.get("limit") ?? "50");
   const offset = Number(sp.get("offset") ?? "0");
 
-  // Normaliza (por si venían raros)
-  if (!sp.get("limit")) sp.set("limit", String(isFinite(limit) ? limit : 50));
-  if (!sp.get("offset")) sp.set("offset", String(isFinite(offset) ? offset : 0));
-
-  const query = sp.toString();
-  const url = `${API}/registros?${query}`;
-
-  const resp = await fetch(url, { cache: "no-store" });
-  if (!resp.ok) {
-    throw new Error(`Error cargando registros (${resp.status})`);
-  }
-
-  const data: {
-    total: number;
-    limit: number;
-    offset: number;
-    items: Array<{
-      id: string;
-      tipo: "ENTRADA" | "SALIDA";
-      tipoEntidad: "PEATON" | "VEHICULO";
-      categoria: "EMPLEADO" | "PROVEEDOR" | "VISITANTE";
-      nombre: string | null;
-      noEmpleado: string | null;
-      empresa: string | null;
-      bodega: string | null;
-      asunto: string | null;
-      placa: string | null;
-      fechaHora: string;
-      dispositivoId: string;
-      salidaSinEntrada: boolean;
-    }>;
-  } = await resp.json();
-
-  // ✅ Export con filtros activos (ya limpios)
-  const exportXlsxUrl = `${API}/registros/export.xlsx?${query}`;
-  const exportPdfUrl = `${API}/registros/export.pdf?${query}`;
+  if (!sp.get("limit")) sp.set("limit", String(Number.isFinite(limit) ? limit : 50));
+  if (!sp.get("offset")) sp.set("offset", String(Number.isFinite(offset) ? offset : 0));
 
   const q = sp.get("q") ?? "";
   const tipo = sp.get("tipo") ?? "";
@@ -73,9 +86,20 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
   const bodega = sp.get("bodega") ?? "";
   const from = sp.get("from") ?? "";
   const to = sp.get("to") ?? "";
-  const hoy = sp.get("hoy") === "1" || sp.get("hoy") === "true";
+
+  const hoy =
+    sp.has("hoy") && (sp.get("hoy") === "1" || sp.get("hoy") === "true");
+
   const salidaSinEntrada =
-    sp.get("salidaSinEntrada") === "1" || sp.get("salidaSinEntrada") === "true";
+    sp.has("salidaSinEntrada") &&
+    (sp.get("salidaSinEntrada") === "1" || sp.get("salidaSinEntrada") === "true");
+
+  const query = sp.toString();
+
+  const data = await apiGet<RegistrosResponse>(`/registros?${query}`);
+
+  const exportXlsxUrl = `/api/registros/export.xlsx?${query}`;
+  const exportPdfUrl = `/api/registros/export.pdf?${query}`;
 
   const hasPrev = data.offset > 0;
   const hasNext = data.offset + data.limit < data.total;
@@ -92,11 +116,11 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
         <div>
           <h1 className="text-2xl font-semibold">Registros</h1>
           <p className="text-sm text-slate-500">
-            Total: <span className="font-medium text-slate-900">{data.total}</span>
+            Historial de accesos. Total:{" "}
+            <span className="font-medium text-slate-900">{data.total}</span>
           </p>
         </div>
 
-        {/* ✅ UN SOLO BLOQUE DE EXPORT (sin duplicados) */}
         <div className="flex gap-2">
           <a
             href={exportXlsxUrl}
@@ -113,13 +137,11 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {/* Filtros (GET) */}
       <form
         action="/registros"
         method="get"
         className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
       >
-        {/* Reinicia offset al aplicar filtros */}
         <input type="hidden" name="limit" value={String(data.limit)} />
         <input type="hidden" name="offset" value="0" />
 
@@ -184,9 +206,9 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
           <div>
             <label className="block text-xs font-medium text-slate-600">Desde</label>
             <input
+              type="datetime-local"
               name="from"
-              defaultValue={from}
-              placeholder="2025-12-26T00:00:00.000Z"
+              defaultValue={from ? isoToLocalInput(from) : ""}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
@@ -194,14 +216,14 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
           <div>
             <label className="block text-xs font-medium text-slate-600">Hasta</label>
             <input
+              type="datetime-local"
               name="to"
-              defaultValue={to}
-              placeholder="2025-12-26T23:59:59.999Z"
+              defaultValue={to ? isoToLocalInput(to) : ""}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </div>
 
-          <div className="flex items-center gap-2 md:col-span-2">
+          <div className="flex items-center gap-4 md:col-span-2">
             <label className="mt-5 flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -241,9 +263,13 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
             </Link>
           </div>
         </div>
+
+        <p className="mt-3 text-xs text-slate-500">
+          Usa <strong>Desde</strong> y <strong>Hasta</strong> para consultas históricas.
+          El filtro <strong>Hoy</strong> solo aplica si lo marcas.
+        </p>
       </form>
 
-      {/* Tabla */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600">
@@ -261,7 +287,7 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
           <tbody>
             {data.items.map((it) => (
               <tr key={it.id} className="border-t border-slate-100">
-                <td className="px-4 py-3 whitespace-nowrap">{it.fechaHora}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(it.fechaHora)}</td>
                 <td className="px-4 py-3">{it.tipo}</td>
                 <td className="px-4 py-3">{it.categoria}</td>
                 <td className="px-4 py-3">{it.nombre ?? "-"}</td>
@@ -279,6 +305,7 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
                 </td>
               </tr>
             ))}
+
             {data.items.length === 0 && (
               <tr>
                 <td className="px-4 py-6 text-center text-slate-500" colSpan={8}>
@@ -290,7 +317,6 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
         </table>
       </div>
 
-      {/* Paginación */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-slate-600">
           Mostrando{" "}
@@ -311,7 +337,7 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
             className={`rounded-lg border px-3 py-2 text-sm font-medium ${
               hasPrev
                 ? "border-slate-200 bg-white hover:bg-slate-50"
-                : "border-slate-100 bg-slate-50 text-slate-400 pointer-events-none"
+                : "pointer-events-none border-slate-100 bg-slate-50 text-slate-400"
             }`}
           >
             Anterior
@@ -322,7 +348,7 @@ export default async function RegistrosPage({ searchParams }: PageProps) {
             className={`rounded-lg border px-3 py-2 text-sm font-medium ${
               hasNext
                 ? "border-slate-200 bg-white hover:bg-slate-50"
-                : "border-slate-100 bg-slate-50 text-slate-400 pointer-events-none"
+                : "pointer-events-none border-slate-100 bg-slate-50 text-slate-400"
             }`}
           >
             Siguiente

@@ -1,7 +1,7 @@
 import { AdminNav } from '@/components/AdminNav'
 import { IdleLogout } from '@/components/IdleLogout'
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function RegistrosLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <IdleLogout />

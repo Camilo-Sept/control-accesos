@@ -8,14 +8,14 @@ export function cleanSearchParams(
 
     if (Array.isArray(v)) {
       for (const item of v) {
-        const val = (item ?? '').trim()
-        if (val) sp.append(k, val)
+        const value = String(item ?? '').trim()
+        if (value !== '') sp.append(k, value)
       }
       continue
     }
 
-    const val = (v ?? '').trim()
-    if (val) sp.set(k, val)
+    const value = String(v).trim()
+    if (value !== '') sp.set(k, value)
   }
 
   return sp

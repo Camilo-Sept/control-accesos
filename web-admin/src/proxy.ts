@@ -3,10 +3,9 @@ import type { NextRequest } from 'next/server'
 
 const TOKEN_COOKIE = 'ca_token'
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // público
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/api/auth') ||
@@ -16,11 +15,15 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // protegemos dashboard + registros
-  const isProtected = pathname.startsWith('/dashboard') || pathname.startsWith('/registros')
+  const isProtected =
+    pathname.startsWith('/dashboard') ||
+    pathname.startsWith('/registros') ||
+    pathname.startsWith('/personas')
+
   if (!isProtected) return NextResponse.next()
 
   const token = req.cookies.get(TOKEN_COOKIE)?.value
+
   if (!token) {
     const url = req.nextUrl.clone()
     url.pathname = '/login'

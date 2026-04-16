@@ -8,12 +8,13 @@ type NavItem = { href: string; label: string }
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/registros', label: 'Registros' },
+  { href: '/personas', label: 'Personas' },
   { href: '/dashboard/sync-logs', label: 'Sync Logs' },
 ]
 
 function isActive(pathname: string, href: string) {
-  if (href === '/dashboard') return pathname === '/dashboard'
-  return pathname.startsWith(href)
+  if (href === '/dashboard') return pathname === '/dashboard' || pathname.startsWith('/dashboard/')
+  return pathname === href || pathname.startsWith(href + '/')
 }
 
 export function AdminNav() {

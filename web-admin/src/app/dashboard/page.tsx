@@ -1,6 +1,5 @@
 import Link from "next/link";
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL!;
+import { apiGet } from "@/lib/api";
 
 type Stats = {
   dentro: number | string;
@@ -49,10 +48,7 @@ function Card({
 }
 
 export default async function DashboardPage() {
-  const resp = await fetch(`${API}/dashboard/stats`, { cache: "no-store" });
-  if (!resp.ok) throw new Error(`Error cargando stats (${resp.status})`);
-
-  const stats: Stats = await resp.json();
+  const stats = await apiGet<Stats>("/dashboard/stats");
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-6">
@@ -68,7 +64,7 @@ export default async function DashboardPage() {
 
         <Card
           title="Salidas sin entrada"
-          value={stats.salidasSinEntradaHoy}
+          value={stats.salidasSinEntradaHoy}  
           href="/registros?tipo=SALIDA&salidaSinEntrada=1"
         />
 
@@ -76,14 +72,7 @@ export default async function DashboardPage() {
         <Card title="Pendientes sync" value={stats.pendientesSync} />
       </div>
 
-      <div className="pt-2">
-        <Link
-          href="/registros"
-          className="inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          Ir a Registros
-        </Link>
-      </div>
+    
     </div>
   );
 }
