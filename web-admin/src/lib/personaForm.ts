@@ -41,6 +41,17 @@ export function normalizePhone(value: string): string {
   return value.replace(/\D/g, '').slice(0, 10)
 }
 
+export function normalizeEmployeeNumber(value: string): string {
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return ''
+
+  try {
+    return BigInt(digits).toString()
+  } catch {
+    return digits
+  }
+}
+
 export function getEmailError(value: string): string | null {
   const normalized = value.trim()
   if (!normalized) return null
@@ -52,6 +63,15 @@ export function getEmailError(value: string): string | null {
 export function getPhoneError(value: string): string | null {
   if (!value.trim()) return null
   return normalizePhone(value).length === 10 ? null : 'El teléfono debe tener 10 dígitos.'
+}
+
+export function getEmployeeNumberError(value: string): string | null {
+  const normalized = value.trim()
+  if (!normalized) return null
+
+  return /^\d+$/.test(normalized)
+    ? null
+    : 'El número de empleado solo acepta números.'
 }
 
 function uniqueUpperOptions(values: string[]): string[] {

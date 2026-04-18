@@ -8,54 +8,9 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: control_accesos_backend
-    restart: unless-stopped
-    depends_on:
-      - db
-    environment:
-      PORT: 3001
-      DATABASE_URL: postgres://postgres:postgres@db:5432/control_accesos
-      JWT_SECRET: CAMBIA_ESTE_SECRET_EN_PRODUCCION
-      CORS_ORIGIN: http://localhost:3000,http://localhost:3002,http://localhost:5173
-      TABLET_API_KEY: API_KEY_DEL_DISPOSITIVO
-    ports:
-      - "3001:3001"
-
-  web-admin:
-    build:
-      context: ./web-admin
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
-    container_name: control_accesos_web_admin
-    restart: unless-stopped
-    depends_on:
-      - backend
-    environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
-    ports:
-      - "3003:3000"
-
-  mobile-web:
-    build:
-      context: ./mobile-app
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: http://localhost:3001
-        VITE_TABLET_API_KEY: API_KEY_DEL_DISPOSITIVO
-        VITE_DEVICE_ID: tablet-puerta-1
-    container_name: control_accesos_mobile_web
-    restart: unless-stopped
-    ports:
-      - "3002:80"
 
 volumes:
   postgres_data:

@@ -3,10 +3,34 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod'
 import { pool } from '../db/pool'
 import { HttpError } from '../lib/httpErrors'
-import { requireAdminJwt } from '../middlewares/adminAuth'
+import { requireRoles } from '../middlewares/requireRoles'
 
 const TIPOS_PERSONA = ['EMPLEADO', 'VISITANTE', 'PROVEEDOR', 'CONTRATISTA'] as const
 const PERSONA_QR_PREFIX = 'IMPULSO|2|PERSONA|'
+
+type PgErrorLike = {
+  code?: string
+  constraint?: string
+}
+
+const PERSONA_SELECT_SQL = `
+  SELECT
+    id,
+    nombre,
+    no_empleado::text AS "noEmpleado",
+    empresa,
+    area,
+    bodega,
+    tipo_persona AS "tipoPersona",
+    activo,
+    qr_value AS "qrValue",
+    telefono,
+    email,
+    notas,
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
+  FROM personas
+`
 
 function buildCanonicalPersonaQrValue(id: string) {
   return `${PERSONA_QR_PREFIX}${id}`
@@ -43,6 +67,112 @@ function parseBooleanLike(value: unknown): boolean | undefined {
   if (s === '1' || s === 'true') return true
   if (s === '0' || s === 'false') return false
   return undefined
+}
+
+function normalizeEmployeeNumberInput(
+  value: unknown,
+  ctx: z.RefinementCtx,
+  preserveUndefined: boolean
+): string | null | undefined {
+  if (value === undefined) {
+    return preserveUndefined ? undefined : null
+  }
+
+  if (value === null) {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'No. empleado inválido. Debe ser un número entero positivo.',
+      })
+      return z.NEVER
+    }
+
+    return String(value)
+  }
+
+  if (typeof value === 'bigint') {
+    if (value <= 0n) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'No. empleado inválido. Debe ser un número entero positivo.',
+      })
+      return z.NEVER
+    }
+
+    return value.toString()
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+
+    if (normalized === '') {
+      return null
+    }
+
+    if (!/^\d+$/.test(normalized)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'No. empleado inválido. Solo se permiten números.',
+      })
+      return z.NEVER
+    }
+
+    try {
+      const canonical = BigInt(normalized)
+
+      if (canonical <= 0n) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'No. empleado inválido. Debe ser un número entero positivo.',
+        })
+        return z.NEVER
+      }
+
+      return canonical.toString()
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'No. empleado inválido.',
+      })
+      return z.NEVER
+    }
+  }
+
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: 'No. empleado inválido.',
+  })
+  return z.NEVER
+}
+
+function mapPersonaDbError(error: unknown): HttpError | null {
+  const pgError = error as PgErrorLike | undefined
+
+  if (!pgError?.code) {
+    return null
+  }
+
+  if (pgError.code === '23505') {
+    if (pgError.constraint === 'uq_personas_no_empleado') {
+      return new HttpError('No. empleado ya existente', 409)
+    }
+
+    if (pgError.constraint === 'personas_qr_value_key') {
+      return new HttpError('QR ya existente', 409)
+    }
+
+    return new HttpError('No. empleado o QR ya existente', 409)
+  }
+
+  if (pgError.code === '22P02') {
+    return new HttpError('No. empleado inválido. Debe ser numérico.', 400)
+  }
+
+  return null
 }
 
 function requireTabletApiKey(req: Request, _res: Response, next: NextFunction) {
@@ -111,13 +241,25 @@ const OptionalPhoneString = z
     return normalized
   })
 
+const EmployeeNumberCreateSchema = z
+  .unknown()
+  .optional()
+  .nullable()
+  .transform((value, ctx) => normalizeEmployeeNumberInput(value, ctx, false))
+
+const EmployeeNumberUpdateSchema = z
+  .unknown()
+  .optional()
+  .nullable()
+  .transform((value, ctx) => normalizeEmployeeNumberInput(value, ctx, true))
+
 const PersonaCreateSchema = z.object({
   nombre: z
     .string()
     .trim()
     .min(1, 'Nombre requerido')
     .transform((value) => normalizeUpper(value)),
-  noEmpleado: OptionalUpperString,
+  noEmpleado: EmployeeNumberCreateSchema,
   empresa: OptionalUpperString,
   area: OptionalUpperString,
   bodega: OptionalUpperString,
@@ -136,7 +278,7 @@ const PersonaUpdateSchema = z
       .min(1, 'Nombre requerido')
       .transform((value) => normalizeUpper(value))
       .optional(),
-    noEmpleado: OptionalUpperString,
+    noEmpleado: EmployeeNumberUpdateSchema,
     empresa: OptionalUpperString,
     area: OptionalUpperString,
     bodega: OptionalUpperString,
@@ -156,15 +298,15 @@ const QuerySchema = z.object({
   activo: z
     .union([z.string(), z.boolean()])
     .optional()
-    .transform((v) => parseBooleanLike(v)),
+    .transform((value) => parseBooleanLike(value)),
   limit: z
     .string()
     .optional()
-    .transform((v) => Math.min(Math.max(parseInt(v || '50', 10) || 50, 1), 200)),
+    .transform((value) => Math.min(Math.max(parseInt(value || '50', 10) || 50, 1), 200)),
   offset: z
     .string()
     .optional()
-    .transform((v) => Math.max(parseInt(v || '0', 10) || 0, 0)),
+    .transform((value) => Math.max(parseInt(value || '0', 10) || 0, 0)),
 })
 
 const ByQrQuerySchema = z.object({
@@ -172,14 +314,12 @@ const ByQrQuerySchema = z.object({
   includeInactive: z
     .union([z.string(), z.boolean()])
     .optional()
-    .transform((v) => parseBooleanLike(v) ?? false),
+    .transform((value) => parseBooleanLike(value) ?? false),
 })
 
 export function personasRoutes() {
   const r = Router()
 
-  // === TABLET LOOKUP POR QR CANÓNICO ===
-  // Esta ruta NO usa requireAdminJwt porque la consumirá la tablet con x-api-key.
   r.get('/by-qr', requireTabletApiKey, async (req, res, next) => {
     try {
       const parsed = ByQrQuerySchema.safeParse(req.query)
@@ -190,32 +330,17 @@ export function personasRoutes() {
       const { value, includeInactive } = parsed.data
       const qrValue = value.trim()
 
-      const params: any[] = [qrValue]
+      const params: unknown[] = [qrValue]
       let whereExtra = ''
 
       if (!includeInactive) {
         params.push(true)
-        whereExtra = `AND activo = $2`
+        whereExtra = 'AND activo = $2'
       }
 
       const result = await pool.query(
         `
-        SELECT
-          id,
-          nombre,
-          no_empleado AS "noEmpleado",
-          empresa,
-          area,
-          bodega,
-          tipo_persona AS "tipoPersona",
-          activo,
-          qr_value AS "qrValue",
-          telefono,
-          email,
-          notas,
-          created_at AS "createdAt",
-          updated_at AS "updatedAt"
-        FROM personas
+        ${PERSONA_SELECT_SQL}
         WHERE qr_value = $1
         ${whereExtra}
         LIMIT 1
@@ -228,15 +353,13 @@ export function personasRoutes() {
       }
 
       res.json(result.rows[0])
-    } catch (err) {
-      next(err)
+    } catch (error) {
+      next(error)
     }
   })
 
-  // Lo demás sigue siendo admin-only
-  r.use(requireAdminJwt)
+  r.use(requireRoles('ADMIN', 'SUP'))
 
-  // GET /personas
   r.get('/', async (req, res, next) => {
     try {
       const parsed = QuerySchema.safeParse(req.query)
@@ -247,15 +370,15 @@ export function personasRoutes() {
       const { q, tipoPersona, activo, limit = 50, offset = 0 } = parsed.data
 
       const where: string[] = []
-      const values: any[] = []
+      const values: unknown[] = []
 
-      if (q) {
+      if (q && q.trim()) {
         values.push(`%${q.trim()}%`)
         const idx = values.length
 
         where.push(`(
           nombre ILIKE $${idx}
-          OR COALESCE(no_empleado, '') ILIKE $${idx}
+          OR COALESCE(no_empleado::text, '') ILIKE $${idx}
           OR COALESCE(empresa, '') ILIKE $${idx}
           OR COALESCE(area, '') ILIKE $${idx}
           OR COALESCE(bodega, '') ILIKE $${idx}
@@ -289,22 +412,7 @@ export function personasRoutes() {
       const offsetIdx = values.length
 
       const itemsSql = `
-        SELECT
-          id,
-          nombre,
-          no_empleado AS "noEmpleado",
-          empresa,
-          area,
-          bodega,
-          tipo_persona AS "tipoPersona",
-          activo,
-          qr_value AS "qrValue",
-          telefono,
-          email,
-          notas,
-          created_at AS "createdAt",
-          updated_at AS "updatedAt"
-        FROM personas
+        ${PERSONA_SELECT_SQL}
         ${whereSql}
         ORDER BY nombre ASC
         LIMIT $${limitIdx} OFFSET $${offsetIdx}
@@ -317,12 +425,11 @@ export function personasRoutes() {
         offset,
         items: itemsRes.rows,
       })
-    } catch (err) {
-      next(err)
+    } catch (error) {
+      next(error)
     }
   })
 
-  // GET /personas/catalogos
   r.get('/catalogos', async (_req, res, next) => {
     try {
       const [empresasRes, areasRes, bodegasRes] = await Promise.all([
@@ -351,34 +458,18 @@ export function personasRoutes() {
         areas: areasRes.rows.map((row) => row.value),
         bodegas: bodegasRes.rows.map((row) => row.value),
       })
-    } catch (err) {
-      next(err)
+    } catch (error) {
+      next(error)
     }
   })
 
-  // GET /personas/:id
   r.get('/:id', async (req, res, next) => {
     try {
       const { id } = req.params
 
       const result = await pool.query(
         `
-        SELECT
-          id,
-          nombre,
-          no_empleado AS "noEmpleado",
-          empresa,
-          area,
-          bodega,
-          tipo_persona AS "tipoPersona",
-          activo,
-          qr_value AS "qrValue",
-          telefono,
-          email,
-          notas,
-          created_at AS "createdAt",
-          updated_at AS "updatedAt"
-        FROM personas
+        ${PERSONA_SELECT_SQL}
         WHERE id = $1
         `,
         [id]
@@ -389,12 +480,11 @@ export function personasRoutes() {
       }
 
       res.json(result.rows[0])
-    } catch (err) {
-      next(err)
+    } catch (error) {
+      next(error)
     }
   })
 
-  // POST /personas
   r.post('/', async (req, res, next) => {
     try {
       const parsed = PersonaCreateSchema.safeParse(req.body)
@@ -426,7 +516,7 @@ export function personasRoutes() {
         RETURNING
           id,
           nombre,
-          no_empleado AS "noEmpleado",
+          no_empleado::text AS "noEmpleado",
           empresa,
           area,
           bodega,
@@ -456,15 +546,16 @@ export function personasRoutes() {
       )
 
       res.status(201).json(result.rows[0])
-    } catch (err: any) {
-      if (err?.code === '23505') {
-        return next(new HttpError('No. empleado o QR ya existente', 409))
+    } catch (error) {
+      const mappedError = mapPersonaDbError(error)
+      if (mappedError) {
+        return next(mappedError)
       }
-      next(err)
+
+      next(error)
     }
   })
 
-  // PUT /personas/:id
   r.put('/:id', async (req, res, next) => {
     try {
       const { id } = req.params
@@ -482,11 +573,10 @@ export function personasRoutes() {
       }
 
       const data = parsed.data
-
       const sets: string[] = []
-      const values: any[] = []
+      const values: unknown[] = []
 
-      const pushSet = (sqlKey: string, value: any) => {
+      const pushSet = (sqlKey: string, value: unknown) => {
         values.push(value)
         sets.push(`${sqlKey} = $${values.length}`)
       }
@@ -519,7 +609,7 @@ export function personasRoutes() {
         RETURNING
           id,
           nombre,
-          no_empleado AS "noEmpleado",
+          no_empleado::text AS "noEmpleado",
           empresa,
           area,
           bodega,
@@ -540,15 +630,16 @@ export function personasRoutes() {
       }
 
       res.json(result.rows[0])
-    } catch (err: any) {
-      if (err?.code === '23505') {
-        return next(new HttpError('No. empleado o QR ya existente', 409))
+    } catch (error) {
+      const mappedError = mapPersonaDbError(error)
+      if (mappedError) {
+        return next(mappedError)
       }
-      next(err)
+
+      next(error)
     }
   })
 
-  // PATCH /personas/:id/activo
   r.patch('/:id/activo', async (req, res, next) => {
     try {
       const { id } = req.params
@@ -569,7 +660,7 @@ export function personasRoutes() {
         RETURNING
           id,
           nombre,
-          no_empleado AS "noEmpleado",
+          no_empleado::text AS "noEmpleado",
           empresa,
           area,
           bodega,
@@ -590,8 +681,8 @@ export function personasRoutes() {
       }
 
       res.json(result.rows[0])
-    } catch (err) {
-      next(err)
+    } catch (error) {
+      next(error)
     }
   })
 

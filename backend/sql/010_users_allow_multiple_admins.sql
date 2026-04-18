@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS uq_users_single_active_admin;

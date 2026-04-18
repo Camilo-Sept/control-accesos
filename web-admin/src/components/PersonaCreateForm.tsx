@@ -7,8 +7,10 @@ import {
   buildPersonaCatalogs,
   CUSTOM_OPTION_VALUE,
   getEmailError,
+  getEmployeeNumberError,
   getPhoneError,
   normalizeEmail,
+  normalizeEmployeeNumber,
   normalizePhone,
   toNullable,
   toUpperInput,
@@ -30,6 +32,7 @@ type FormState = {
 }
 
 type FieldErrors = {
+  noEmpleado?: string
   email?: string
   telefono?: string
 }
@@ -98,9 +101,11 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
   function validateFields() {
     const nextErrors: FieldErrors = {}
 
+    const noEmpleadoError = getEmployeeNumberError(form.noEmpleado)
     const emailError = getEmailError(form.email)
     const telefonoError = getPhoneError(form.telefono)
 
+    if (noEmpleadoError) nextErrors.noEmpleado = noEmpleadoError
     if (emailError) nextErrors.email = emailError
     if (telefonoError) nextErrors.telefono = telefonoError
 
@@ -111,7 +116,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
   function buildPayload(): PersonaCreateInput {
     return {
       nombre: toUpperInput(form.nombre).trim(),
-      noEmpleado: toNullable(toUpperInput(form.noEmpleado)),
+      noEmpleado: toNullable(normalizeEmployeeNumber(form.noEmpleado)),
       empresa: toNullable(toUpperInput(form.empresa)),
       area: toNullable(toUpperInput(form.area)),
       bodega: toNullable(toUpperInput(form.bodega)),
@@ -124,8 +129,8 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
     }
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     setSubmitting(true)
     setSuccess(null)
     setError(null)
@@ -144,14 +149,14 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
     }
 
     try {
-      const res = await fetch('/api/personas', {
+      const response = await fetch('/api/personas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
 
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as unknown
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as unknown
         setError(getApiErrorMessage(data))
         setSubmitting(false)
         return
@@ -183,7 +188,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">Nombre *</label>
             <input
               value={form.nombre}
-              onChange={(e) => updateField('nombre', toUpperInput(e.target.value))}
+              onChange={(event) => updateField('nombre', toUpperInput(event.target.value))}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               placeholder="NOMBRE COMPLETO"
               maxLength={200}
@@ -194,7 +199,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">Tipo</label>
             <select
               value={form.tipoPersona}
-              onChange={(e) => updateField('tipoPersona', e.target.value as TipoPersona)}
+              onChange={(event) => updateField('tipoPersona', event.target.value as TipoPersona)}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             >
               {TIPOS_PERSONA.map((tipo) => (
@@ -209,11 +214,18 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">No. empleado</label>
             <input
               value={form.noEmpleado}
-              onChange={(e) => updateField('noEmpleado', toUpperInput(e.target.value))}
+              onChange={(event) => {
+                updateField('noEmpleado', event.target.value)
+                setFieldErrors((prev) => ({ ...prev, noEmpleado: undefined }))
+              }}
+              inputMode="numeric"
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="EJ. EMP001"
-              maxLength={50}
+              placeholder="EJ. 12345"
+              maxLength={20}
             />
+            {fieldErrors.noEmpleado && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.noEmpleado}</p>
+            )}
           </div>
 
           <div>
@@ -221,7 +233,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <input
               list="empresas-sugeridas-create"
               value={form.empresa}
-              onChange={(e) => updateField('empresa', toUpperInput(e.target.value))}
+              onChange={(event) => updateField('empresa', toUpperInput(event.target.value))}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               placeholder="EMPRESA"
               maxLength={120}
@@ -237,7 +249,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">Área</label>
             <select
               value={areaIsCustom ? CUSTOM_OPTION_VALUE : form.area}
-              onChange={(e) => handleAreaSelect(e.target.value)}
+              onChange={(event) => handleAreaSelect(event.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="">Selecciona...</option>
@@ -252,7 +264,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             {areaIsCustom && (
               <input
                 value={form.area}
-                onChange={(e) => updateField('area', toUpperInput(e.target.value))}
+                onChange={(event) => updateField('area', toUpperInput(event.target.value))}
                 className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                 placeholder="NUEVA ÁREA"
                 maxLength={120}
@@ -264,7 +276,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">Bodega</label>
             <select
               value={bodegaIsCustom ? CUSTOM_OPTION_VALUE : form.bodega}
-              onChange={(e) => handleBodegaSelect(e.target.value)}
+              onChange={(event) => handleBodegaSelect(event.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="">Selecciona...</option>
@@ -279,7 +291,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             {bodegaIsCustom && (
               <input
                 value={form.bodega}
-                onChange={(e) => updateField('bodega', toUpperInput(e.target.value))}
+                onChange={(event) => updateField('bodega', toUpperInput(event.target.value))}
                 className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                 placeholder="NUEVA BODEGA"
                 maxLength={120}
@@ -291,8 +303,8 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">Teléfono</label>
             <input
               value={form.telefono}
-              onChange={(e) => {
-                updateField('telefono', normalizePhone(e.target.value))
+              onChange={(event) => {
+                updateField('telefono', normalizePhone(event.target.value))
                 setFieldErrors((prev) => ({ ...prev, telefono: undefined }))
               }}
               inputMode="numeric"
@@ -309,8 +321,8 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">Email</label>
             <input
               value={form.email}
-              onChange={(e) => {
-                updateField('email', normalizeEmail(e.target.value))
+              onChange={(event) => {
+                updateField('email', normalizeEmail(event.target.value))
                 setFieldErrors((prev) => ({ ...prev, email: undefined }))
               }}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -333,7 +345,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
             <label className="block text-xs font-medium text-slate-600">Notas</label>
             <textarea
               value={form.notas}
-              onChange={(e) => updateField('notas', toUpperInput(e.target.value))}
+              onChange={(event) => updateField('notas', toUpperInput(event.target.value))}
               className="mt-1 min-h-[96px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               placeholder="OBSERVACIONES OPCIONALES"
               maxLength={500}
@@ -345,7 +357,7 @@ export default function PersonaCreateForm({ catalogos }: { catalogos: PersonaCat
           <input
             type="checkbox"
             checked={form.activo}
-            onChange={(e) => updateField('activo', e.target.checked)}
+            onChange={(event) => updateField('activo', event.target.checked)}
             className="h-4 w-4 rounded border-slate-300"
           />
           Registrar como activo

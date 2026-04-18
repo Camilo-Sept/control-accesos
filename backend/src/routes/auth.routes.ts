@@ -43,7 +43,7 @@ export function authRoutes() {
       const userRes = await pool.query(
         `
         SELECT id, email, password_hash, role, activo
-        FROM admin_users
+        FROM users
         WHERE email = $1
         LIMIT 1
         `,

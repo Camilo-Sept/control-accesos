@@ -103,6 +103,24 @@ class SQLiteService {
       );
     `);
 
+    // Índices útiles para búsquedas rápidas locales
+    await this.db.execute(`
+      CREATE INDEX IF NOT EXISTS idx_registros_fecha_hora
+      ON registros(fecha_hora);
+
+      CREATE INDEX IF NOT EXISTS idx_registros_no_empleado
+      ON registros(no_empleado);
+
+      CREATE INDEX IF NOT EXISTS idx_registros_placa
+      ON registros(placa);
+
+      CREATE INDEX IF NOT EXISTS idx_registros_persona
+      ON registros(nombre, empresa, bodega);
+
+      CREATE INDEX IF NOT EXISTS idx_registros_qr_contenido
+      ON registros(qr_contenido);
+    `);
+
     return this.db;
   }
 
@@ -129,10 +147,19 @@ class SQLiteService {
 
       qrContenido: row.qr_contenido ?? null,
       fechaHora: row.fecha_hora,
-      // 👇 aquí forzamos a que coincida con el tipo de RegistroLocal['synced']
       synced: row.synced as unknown as RegistroLocal['synced'],
       dispositivoId: row.dispositivo_id,
     };
+  }
+
+  private async queryOne(
+    sql: string,
+    params: Array<string | number | null> = []
+  ): Promise<RegistroLocal | null> {
+    const db = await this.getDb();
+    const res = await db.query(sql, params);
+    const row = ((res.values ?? [])[0] ?? null) as RawRegistroRow | null;
+    return row ? this.mapRowToRegistro(row) : null;
   }
 
   async insertarRegistro(data: {
@@ -216,7 +243,6 @@ class SQLiteService {
 
       qrContenido: data.qrContenido ?? null,
       fechaHora,
-      // 👇 igual, respetando el tipo que tenga RegistroLocal['synced']
       synced: 0 as unknown as RegistroLocal['synced'],
       dispositivoId: data.dispositivoId,
     };
@@ -226,7 +252,14 @@ class SQLiteService {
 
   async obtenerPendientes(): Promise<RegistroLocal[]> {
     const db = await this.getDb();
-    const res = await db.query('SELECT * FROM registros WHERE synced = 0');
+    const res = await db.query(
+      `
+      SELECT *
+      FROM registros
+      WHERE synced = 0
+      ORDER BY datetime(fecha_hora) ASC
+      `
+    );
     const rows = (res.values ?? []) as RawRegistroRow[];
     return rows.map((r) => this.mapRowToRegistro(r));
   }
@@ -255,46 +288,42 @@ class SQLiteService {
     return rows.map((r) => this.mapRowToRegistro(r));
   }
 
-  // ==== BÚSQUEDAS PARA VALIDAR / AUTOLLENAR (último registro en general) ====
+  // ==== BÚSQUEDAS "HOY" (para reglas de negocio / validaciones) ====
 
   async buscarUltimoPorPlacaHoy(placa: string): Promise<RegistroLocal | null> {
-    const db = await this.getDb();
-    const placaUpper = placa.toUpperCase();
-    const res = await db.query(
+    const placaUpper = placa.trim().toUpperCase();
+    if (!placaUpper) return null;
+
+    return this.queryOne(
       `
       SELECT *
       FROM registros
       WHERE placa = ?
+        AND date(fecha_hora, 'localtime') = date('now', 'localtime')
       ORDER BY datetime(fecha_hora) DESC
-      LIMIT 1;
+      LIMIT 1
       `,
       [placaUpper]
     );
-
-    if (!res.values || res.values.length === 0) return null;
-    const row = res.values[0] as RawRegistroRow;
-    return this.mapRowToRegistro(row);
   }
 
   async buscarUltimoPorNoEmpleadoHoy(
     noEmpleado: string
   ): Promise<RegistroLocal | null> {
-    const db = await this.getDb();
     const limpio = noEmpleado.trim().toUpperCase();
-    const res = await db.query(
+    if (!limpio) return null;
+
+    return this.queryOne(
       `
       SELECT *
       FROM registros
       WHERE no_empleado = ?
+        AND date(fecha_hora, 'localtime') = date('now', 'localtime')
       ORDER BY datetime(fecha_hora) DESC
-      LIMIT 1;
+      LIMIT 1
       `,
       [limpio]
     );
-
-    if (!res.values || res.values.length === 0) return null;
-    const row = res.values[0] as RawRegistroRow;
-    return this.mapRowToRegistro(row);
   }
 
   async buscarUltimoPorPersonaHoy(
@@ -302,8 +331,94 @@ class SQLiteService {
     empresa: string,
     bodega: string
   ): Promise<RegistroLocal | null> {
-    const db = await this.getDb();
-    const res = await db.query(
+    const n = nombre.trim().toUpperCase();
+    const e = empresa.trim().toUpperCase();
+    const b = bodega.trim().toUpperCase();
+
+    if (!n || !e || !b) return null;
+
+    return this.queryOne(
+      `
+      SELECT *
+      FROM registros
+      WHERE nombre = ?
+        AND empresa = ?
+        AND bodega = ?
+        AND date(fecha_hora, 'localtime') = date('now', 'localtime')
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1
+      `,
+      [n, e, b]
+    );
+  }
+
+  async buscarUltimoPorQRHoy(qr: string): Promise<RegistroLocal | null> {
+    const limpio = qr.trim();
+    if (!limpio) return null;
+
+    return this.queryOne(
+      `
+      SELECT *
+      FROM registros
+      WHERE qr_contenido = ?
+        AND date(fecha_hora, 'localtime') = date('now', 'localtime')
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1
+      `,
+      [limpio]
+    );
+  }
+
+  // ==== BÚSQUEDAS HISTÓRICAS (para autollenado / conveniencia) ====
+
+  async buscarUltimoPorPlacaHistorico(
+    placa: string
+  ): Promise<RegistroLocal | null> {
+    const placaUpper = placa.trim().toUpperCase();
+    if (!placaUpper) return null;
+
+    return this.queryOne(
+      `
+      SELECT *
+      FROM registros
+      WHERE placa = ?
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1
+      `,
+      [placaUpper]
+    );
+  }
+
+  async buscarUltimoPorNoEmpleadoHistorico(
+    noEmpleado: string
+  ): Promise<RegistroLocal | null> {
+    const limpio = noEmpleado.trim().toUpperCase();
+    if (!limpio) return null;
+
+    return this.queryOne(
+      `
+      SELECT *
+      FROM registros
+      WHERE no_empleado = ?
+      ORDER BY datetime(fecha_hora) DESC
+      LIMIT 1
+      `,
+      [limpio]
+    );
+  }
+
+  async buscarUltimoPorPersonaHistorico(
+    nombre: string,
+    empresa: string,
+    bodega: string
+  ): Promise<RegistroLocal | null> {
+    const n = nombre.trim().toUpperCase();
+    const e = empresa.trim().toUpperCase();
+    const b = bodega.trim().toUpperCase();
+
+    if (!n || !e || !b) return null;
+
+    return this.queryOne(
       `
       SELECT *
       FROM registros
@@ -311,36 +426,60 @@ class SQLiteService {
         AND empresa = ?
         AND bodega = ?
       ORDER BY datetime(fecha_hora) DESC
-      LIMIT 1;
+      LIMIT 1
       `,
-      [
-        nombre.trim().toUpperCase(),
-        empresa.trim().toUpperCase(),
-        bodega.trim().toUpperCase(),
-      ]
+      [n, e, b]
     );
-
-    if (!res.values || res.values.length === 0) return null;
-    const row = res.values[0] as RawRegistroRow;
-    return this.mapRowToRegistro(row);
   }
 
-  async buscarUltimoPorQRHoy(qr: string): Promise<RegistroLocal | null> {
-    const db = await this.getDb();
-    const res = await db.query(
+  async buscarUltimoPorQRHistorico(qr: string): Promise<RegistroLocal | null> {
+    const limpio = qr.trim();
+    if (!limpio) return null;
+
+    return this.queryOne(
       `
       SELECT *
       FROM registros
       WHERE qr_contenido = ?
       ORDER BY datetime(fecha_hora) DESC
-      LIMIT 1;
+      LIMIT 1
       `,
-      [qr]
+      [limpio]
     );
+  }
 
-    if (!res.values || res.values.length === 0) return null;
-    const row = res.values[0] as RawRegistroRow;
-    return this.mapRowToRegistro(row);
+  // ==== BÚSQUEDAS CON FALLBACK (usar en autollenado, NO en validaciones) ====
+
+  async buscarUltimoPorPlacaConFallback(
+    placa: string
+  ): Promise<RegistroLocal | null> {
+    const hoy = await this.buscarUltimoPorPlacaHoy(placa);
+    if (hoy) return hoy;
+    return this.buscarUltimoPorPlacaHistorico(placa);
+  }
+
+  async buscarUltimoPorNoEmpleadoConFallback(
+    noEmpleado: string
+  ): Promise<RegistroLocal | null> {
+    const hoy = await this.buscarUltimoPorNoEmpleadoHoy(noEmpleado);
+    if (hoy) return hoy;
+    return this.buscarUltimoPorNoEmpleadoHistorico(noEmpleado);
+  }
+
+  async buscarUltimoPorPersonaConFallback(
+    nombre: string,
+    empresa: string,
+    bodega: string
+  ): Promise<RegistroLocal | null> {
+    const hoy = await this.buscarUltimoPorPersonaHoy(nombre, empresa, bodega);
+    if (hoy) return hoy;
+    return this.buscarUltimoPorPersonaHistorico(nombre, empresa, bodega);
+  }
+
+  async buscarUltimoPorQRConFallback(qr: string): Promise<RegistroLocal | null> {
+    const hoy = await this.buscarUltimoPorQRHoy(qr);
+    if (hoy) return hoy;
+    return this.buscarUltimoPorQRHistorico(qr);
   }
 }
 

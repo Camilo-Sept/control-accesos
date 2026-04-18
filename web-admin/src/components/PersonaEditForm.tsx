@@ -7,9 +7,11 @@ import {
   buildPersonaCatalogs,
   CUSTOM_OPTION_VALUE,
   getEmailError,
+  getEmployeeNumberError,
   getPhoneError,
   isCustomOption,
   normalizeEmail,
+  normalizeEmployeeNumber,
   normalizePhone,
   toNullable,
   toUpperInput,
@@ -31,6 +33,7 @@ type FormState = {
 }
 
 type FieldErrors = {
+  noEmpleado?: string
   email?: string
   telefono?: string
 }
@@ -64,10 +67,7 @@ function buildInitialState(persona: Persona): FormState {
   }
 }
 
-export default function PersonaEditForm({
-  persona,
-  catalogos,
-}: PersonaEditFormProps) {
+export default function PersonaEditForm({ persona, catalogos }: PersonaEditFormProps) {
   const router = useRouter()
 
   const options = useMemo(() => buildPersonaCatalogs(catalogos), [catalogos])
@@ -120,9 +120,11 @@ export default function PersonaEditForm({
   function validateFields() {
     const nextErrors: FieldErrors = {}
 
+    const noEmpleadoError = getEmployeeNumberError(form.noEmpleado)
     const emailError = getEmailError(form.email)
     const telefonoError = getPhoneError(form.telefono)
 
+    if (noEmpleadoError) nextErrors.noEmpleado = noEmpleadoError
     if (emailError) nextErrors.email = emailError
     if (telefonoError) nextErrors.telefono = telefonoError
 
@@ -133,7 +135,7 @@ export default function PersonaEditForm({
   function buildPayload(): PersonaCreateInput {
     return {
       nombre: toUpperInput(form.nombre).trim(),
-      noEmpleado: toNullable(toUpperInput(form.noEmpleado)),
+      noEmpleado: toNullable(normalizeEmployeeNumber(form.noEmpleado)),
       empresa: toNullable(toUpperInput(form.empresa)),
       area: toNullable(toUpperInput(form.area)),
       bodega: toNullable(toUpperInput(form.bodega)),
@@ -146,8 +148,8 @@ export default function PersonaEditForm({
     }
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     setSubmitting(true)
     setError(null)
 
@@ -165,14 +167,14 @@ export default function PersonaEditForm({
     }
 
     try {
-      const res = await fetch(`/api/personas/${persona.id}`, {
+      const response = await fetch(`/api/personas/${persona.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
 
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as unknown
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as unknown
         setError(getApiErrorMessage(data))
         setSubmitting(false)
         return
@@ -202,7 +204,7 @@ export default function PersonaEditForm({
             <label className="block text-sm font-medium text-slate-700">Nombre *</label>
             <input
               value={form.nombre}
-              onChange={(e) => updateField('nombre', toUpperInput(e.target.value))}
+              onChange={(event) => updateField('nombre', toUpperInput(event.target.value))}
               className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               placeholder="NOMBRE COMPLETO"
               maxLength={200}
@@ -213,18 +215,25 @@ export default function PersonaEditForm({
             <label className="block text-sm font-medium text-slate-700">No. empleado</label>
             <input
               value={form.noEmpleado}
-              onChange={(e) => updateField('noEmpleado', toUpperInput(e.target.value))}
+              onChange={(event) => {
+                updateField('noEmpleado', event.target.value)
+                setFieldErrors((prev) => ({ ...prev, noEmpleado: undefined }))
+              }}
+              inputMode="numeric"
               className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-              placeholder="EMP001"
-              maxLength={50}
+              placeholder="12345"
+              maxLength={20}
             />
+            {fieldErrors.noEmpleado && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.noEmpleado}</p>
+            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-700">Tipo</label>
             <select
               value={form.tipoPersona}
-              onChange={(e) => updateField('tipoPersona', e.target.value as TipoPersona)}
+              onChange={(event) => updateField('tipoPersona', event.target.value as TipoPersona)}
               className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             >
               {TIPOS_PERSONA.map((tipo) => (
@@ -240,7 +249,7 @@ export default function PersonaEditForm({
             <input
               list={`empresas-sugeridas-${persona.id}`}
               value={form.empresa}
-              onChange={(e) => updateField('empresa', toUpperInput(e.target.value))}
+              onChange={(event) => updateField('empresa', toUpperInput(event.target.value))}
               className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               placeholder="EMPRESA"
               maxLength={120}
@@ -256,7 +265,7 @@ export default function PersonaEditForm({
             <label className="block text-sm font-medium text-slate-700">Área</label>
             <select
               value={areaIsCustom ? CUSTOM_OPTION_VALUE : form.area}
-              onChange={(e) => handleAreaSelect(e.target.value)}
+              onChange={(event) => handleAreaSelect(event.target.value)}
               className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             >
               <option value="">Selecciona...</option>
@@ -271,7 +280,7 @@ export default function PersonaEditForm({
             {areaIsCustom && (
               <input
                 value={form.area}
-                onChange={(e) => updateField('area', toUpperInput(e.target.value))}
+                onChange={(event) => updateField('area', toUpperInput(event.target.value))}
                 className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 placeholder="NUEVA ÁREA"
                 maxLength={120}
@@ -283,7 +292,7 @@ export default function PersonaEditForm({
             <label className="block text-sm font-medium text-slate-700">Bodega</label>
             <select
               value={bodegaIsCustom ? CUSTOM_OPTION_VALUE : form.bodega}
-              onChange={(e) => handleBodegaSelect(e.target.value)}
+              onChange={(event) => handleBodegaSelect(event.target.value)}
               className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             >
               <option value="">Selecciona...</option>
@@ -298,7 +307,7 @@ export default function PersonaEditForm({
             {bodegaIsCustom && (
               <input
                 value={form.bodega}
-                onChange={(e) => updateField('bodega', toUpperInput(e.target.value))}
+                onChange={(event) => updateField('bodega', toUpperInput(event.target.value))}
                 className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 placeholder="NUEVA BODEGA"
                 maxLength={120}
@@ -310,8 +319,8 @@ export default function PersonaEditForm({
             <label className="block text-sm font-medium text-slate-700">Teléfono</label>
             <input
               value={form.telefono}
-              onChange={(e) => {
-                updateField('telefono', normalizePhone(e.target.value))
+              onChange={(event) => {
+                updateField('telefono', normalizePhone(event.target.value))
                 setFieldErrors((prev) => ({ ...prev, telefono: undefined }))
               }}
               inputMode="numeric"
@@ -328,8 +337,8 @@ export default function PersonaEditForm({
             <label className="block text-sm font-medium text-slate-700">Email</label>
             <input
               value={form.email}
-              onChange={(e) => {
-                updateField('email', normalizeEmail(e.target.value))
+              onChange={(event) => {
+                updateField('email', normalizeEmail(event.target.value))
                 setFieldErrors((prev) => ({ ...prev, email: undefined }))
               }}
               className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
@@ -357,7 +366,7 @@ export default function PersonaEditForm({
             <label className="block text-sm font-medium text-slate-700">Notas</label>
             <textarea
               value={form.notas}
-              onChange={(e) => updateField('notas', toUpperInput(e.target.value))}
+              onChange={(event) => updateField('notas', toUpperInput(event.target.value))}
               className="mt-1 min-h-[120px] w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               placeholder="OBSERVACIONES OPCIONALES"
               maxLength={500}
@@ -370,7 +379,7 @@ export default function PersonaEditForm({
             <input
               type="checkbox"
               checked={form.activo}
-              onChange={(e) => updateField('activo', e.target.checked)}
+              onChange={(event) => updateField('activo', event.target.checked)}
               className="h-4 w-4 rounded border-slate-300"
             />
             Persona activa

@@ -7,11 +7,12 @@ import { registrosRoutes } from './routes/registros.routes'
 import { authRoutes } from './routes/auth.routes'
 import { HttpError } from './lib/httpErrors'
 import { personasRoutes } from './routes/personas.routes'
+import { usersRoutes } from './routes/users.routes'
 
 function buildAllowedOrigins() {
   return env.corsOrigin
     .split(',')
-    .map((v) => v.trim())
+    .map((value) => value.trim())
     .filter(Boolean)
 }
 
@@ -40,6 +41,7 @@ export function createApp() {
 
   app.use(express.json({ limit: '2mb' }))
 
+  app.use(usersRoutes())
   app.use('/health', healthRoutes())
   app.use('/auth', authRoutes())
   app.use('/dashboard', dashboardRoutes())
@@ -56,9 +58,7 @@ export function createApp() {
       _next: express.NextFunction
     ) => {
       if (err instanceof HttpError) {
-        return res
-          .status(err.status)
-          .json({ error: err.message, details: err.details })
+        return res.status(err.status).json({ error: err.message, details: err.details })
       }
 
       if (err instanceof Error && err.message.startsWith('Origen no permitido por CORS:')) {
