@@ -34,7 +34,7 @@ const RegistroSchema = z.object({
 })
 
 const BatchSchema = z.object({
-  registros: z.array(RegistroSchema).min(1),
+  registros: z.array(RegistroSchema).min(1).max(500),
 })
 
 // ✅ boolean query param robusto: '1'/'true' => true, '0'/'false' => false, vacío/undefined => undefined

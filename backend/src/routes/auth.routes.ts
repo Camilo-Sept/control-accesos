@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
-//import jwt from 'jsonwebtoken'
+import { rateLimit } from 'express-rate-limit'
 import { pool } from '../db/pool'
 import { env } from '../lib/env'
 import { HttpError } from '../lib/httpErrors'
@@ -13,10 +13,16 @@ const LoginSchema = z.object({
 })
 
 import jwt, { type JwtPayload, type SignOptions } from 'jsonwebtoken'
-function signToken(payload: { sub: string; email: string; role: string }) {
-  const secret = process.env.JWT_SECRET
-  if (!secret) throw new Error('JWT_SECRET no está configurado en backend/.env')
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Intenta nuevamente en 15 minutos.' },
+})
+
+function signToken(payload: { sub: string; email: string; role: string }) {
   const expiresIn = (process.env.JWT_EXPIRES_IN || '8h') as SignOptions['expiresIn']
 
   const jwtPayload: JwtPayload = {
@@ -25,14 +31,14 @@ function signToken(payload: { sub: string; email: string; role: string }) {
     role: payload.role,
   }
 
-  return jwt.sign(jwtPayload, secret, { expiresIn })
+  return jwt.sign(jwtPayload, env.jwtSecret, { expiresIn })
 }
 
 export function authRoutes() {
   const r = Router()
 
   // POST /auth/login  => { token, user }
-  r.post('/login', async (req, res, next) => {
+  r.post('/login', loginLimiter, async (req, res, next) => {
     try {
       const parsed = LoginSchema.safeParse(req.body)
       if (!parsed.success) throw new HttpError('Payload inválido', 400, parsed.error.flatten())
@@ -75,13 +81,17 @@ export function authRoutes() {
       const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
       if (!token) throw new HttpError('No autorizado', 401)
 
-      const secret = process.env.JWT_SECRET
-      if (!secret) throw new Error('JWT_SECRET no está configurado en backend/.env')
+      const decoded = jwt.verify(token, env.jwtSecret) as JwtPayload
+      const userRes = await pool.query(
+        `SELECT id, email, role, activo FROM users WHERE id = $1 LIMIT 1`,
+        [String(decoded.sub)]
+      )
+      const user = userRes.rows[0]
+      if (!user?.activo) throw new HttpError('No autorizado', 401)
 
-      const decoded = jwt.verify(token, secret) as any
       res.json({
         ok: true,
-        user: { id: decoded.sub, email: decoded.email, role: decoded.role },
+        user: { id: user.id, email: user.email, role: user.role },
       })
     } catch (e) {
       next(new HttpError('No autorizado', 401))

@@ -1,6 +1,8 @@
-describe('My First Test', () => {
-  it('Visits the app root url', () => {
+describe('Control de Accesos', () => {
+  it('muestra el formulario de inicio de sesión', () => {
     cy.visit('/')
-    cy.contains('#container', 'Ready to create an app?')
+    cy.contains('Control de Accesos')
+    cy.get('input[type="email"]').should('exist')
+    cy.get('input[type="password"]').should('exist')
   })
 })

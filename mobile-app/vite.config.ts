@@ -6,10 +6,7 @@ import { defineConfig } from 'vite'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    legacy()
-  ],
+  plugins: [react(), legacy()],
   test: {
     globals: true,
     environment: 'jsdom',

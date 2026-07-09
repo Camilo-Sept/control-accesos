@@ -44,6 +44,7 @@ import {
   cameraOutline,
 } from 'ionicons/icons'
 import { useHistory } from 'react-router-dom'
+import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'
 import { Camera, CameraResultType } from '@capacitor/camera'
 import { Network } from '@capacitor/network'
 import { sqliteService } from '../services/sqliteService'
@@ -54,14 +55,17 @@ import {
   isCanonicalPersonaQr,
   mapTipoPersonaToCategoria,
 } from '../services/personasApi'
-import { barcodeScannerService } from '../services/barcodeScannerService'
+import {
+  ScannerPermissionError,
+  barcodeScannerService,
+} from '../services/barcodeScannerService'
 import {
   TipoRegistro,
   TipoEntidad,
   CategoriaPersona,
   RegistroLocal,
 } from '../models/registro'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/useAuth'
 
 const DISPOSITIVO_ID = DEVICE_ID
 
@@ -192,6 +196,25 @@ const RegistroPage: React.FC = () => {
   const handleLogout = async () => {
     await logout()
     history.replace('/login')
+  }
+
+  const ofrecerAbrirAjustes = async () => {
+    const confirmar = window.confirm(
+      'La app necesita permiso de cámara. ¿Quieres abrir Ajustes para habilitarlo?'
+    )
+
+    if (!confirmar) {
+      return
+    }
+
+    try {
+      await BarcodeScanner.openSettings()
+    } catch (err) {
+      console.error('No se pudieron abrir los ajustes del dispositivo:', err)
+      setMensaje(
+        'No se pudieron abrir los ajustes. Ve manualmente a Ajustes > Apps > Control de Accesos > Permisos.'
+      )
+    }
   }
 
   const tomarFotoPlacas = async () => {
@@ -533,17 +556,18 @@ const RegistroPage: React.FC = () => {
 
   const manejarScanQR = async () => {
     try {
-      const simulado = window.prompt(
-        'Lectura de QR (temporal): pega o escribe el contenido del QR'
-      )
-      if (simulado) {
-        await procesarQR(simulado)
-      } else {
-        setMensaje('No se proporcionó contenido de QR.')
-      }
+      const contenido = await barcodeScannerService.scanQrContent()
+      await procesarQR(contenido)
     } catch (err) {
-      console.error('Error procesando QR simulado:', err)
-      setMensaje('Error al procesar el código QR.')
+      console.error('Error leyendo QR:', err)
+
+      if (err instanceof ScannerPermissionError) {
+        setMensaje(err.message)
+        await ofrecerAbrirAjustes()
+        return
+      }
+
+      setMensaje(err instanceof Error ? err.message : 'No se pudo leer el código QR.')
     }
   }
 
@@ -558,6 +582,13 @@ const RegistroPage: React.FC = () => {
       setMensaje(`Código leído. No. empleado: ${valor}`)
     } catch (err) {
       console.error('Error leyendo código de barras:', err)
+
+      if (err instanceof ScannerPermissionError) {
+        setMensaje(err.message)
+        await ofrecerAbrirAjustes()
+        return
+      }
+
       setMensaje(
         err instanceof Error
           ? err.message
@@ -923,12 +954,13 @@ const RegistroPage: React.FC = () => {
                   </IonCardTitle>
                 </IonCardHeader>
                 <IonCardContent>
-                  <IonList>
+                  <IonList className="movement-config">
                     <IonItem lines="none">
                       <IonLabel position="stacked" style={{ fontSize: '0.9rem', fontWeight: 600 }}>
                         Tipo de movimiento
                       </IonLabel>
                       <IonSegment
+                        className="compact-segment"
                         value={tipoRegistro}
                         onIonChange={(event) => {
                           setTipoRegistro(event.detail.value as TipoRegistro)
@@ -954,6 +986,7 @@ const RegistroPage: React.FC = () => {
                         Tipo
                       </IonLabel>
                       <IonSegment
+                        className="compact-segment"
                         value={tipoEntidad}
                         onIonChange={(event) => {
                           setTipoEntidad(event.detail.value as TipoEntidad)
@@ -980,6 +1013,7 @@ const RegistroPage: React.FC = () => {
                         Categoría
                       </IonLabel>
                       <IonSegment
+                        className="compact-segment category-segment"
                         value={categoria}
                         onIonChange={(event) => {
                           setCategoria(event.detail.value as CategoriaPersona)
@@ -1003,6 +1037,7 @@ const RegistroPage: React.FC = () => {
                         Modo de captura
                       </IonLabel>
                       <IonSegment
+                        className="compact-segment"
                         value={modoCaptura}
                         onIonChange={(event) => setModoCaptura(event.detail.value as ModoCaptura)}
                       >

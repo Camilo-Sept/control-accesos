@@ -29,7 +29,7 @@ class SyncService {
         return { enviados: 0 }
       }
 
-      const pendientes: RegistroLocal[] = await sqliteService.obtenerPendientes()
+      const pendientes: RegistroLocal[] = (await sqliteService.obtenerPendientes()).slice(0, 200)
       if (!pendientes.length) {
         return { enviados: 0 }
       }
@@ -64,9 +64,14 @@ class SyncService {
         return { enviados: 0 }
       }
 
-      const json = await resp.json()
-      const confirmados: string[] =
-        json.confirmados ?? pendientes.map((r) => r.id)
+      const json = (await resp.json()) as { confirmados?: unknown }
+      if (
+        !Array.isArray(json.confirmados) ||
+        !json.confirmados.every((id): id is string => typeof id === 'string')
+      ) {
+        throw new Error('El servidor no confirmó correctamente los registros sincronizados.')
+      }
+      const confirmados = json.confirmados
 
       await sqliteService.marcarComoSincronizados(confirmados)
 

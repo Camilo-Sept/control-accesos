@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { pool } from '../db/pool'
 import { HttpError } from '../lib/httpErrors'
 import { requireRoles } from '../middlewares/requireRoles'
+import { requireKnownDeviceApiKey } from '../middlewares/deviceAuth'
 
 const TIPOS_PERSONA = ['EMPLEADO', 'VISITANTE', 'PROVEEDOR', 'CONTRATISTA'] as const
 const PERSONA_QR_PREFIX = 'IMPULSO|2|PERSONA|'
@@ -175,22 +176,6 @@ function mapPersonaDbError(error: unknown): HttpError | null {
   return null
 }
 
-function requireTabletApiKey(req: Request, _res: Response, next: NextFunction) {
-  const expected =
-    process.env.TABLET_API_KEY?.trim() ||
-    process.env.DEVICE_API_KEY?.trim() ||
-    process.env.REGISTROS_API_KEY?.trim() ||
-    'API_KEY_DEL_DISPOSITIVO'
-
-  const received = req.header('x-api-key')?.trim()
-
-  if (!received || received !== expected) {
-    return next(new HttpError('API key inválida', 401))
-  }
-
-  next()
-}
-
 const OptionalUpperString = z
   .string()
   .trim()
@@ -320,7 +305,7 @@ const ByQrQuerySchema = z.object({
 export function personasRoutes() {
   const r = Router()
 
-  r.get('/by-qr', requireTabletApiKey, async (req, res, next) => {
+  r.get('/by-qr', requireKnownDeviceApiKey, async (req, res, next) => {
     try {
       const parsed = ByQrQuerySchema.safeParse(req.query)
       if (!parsed.success) {

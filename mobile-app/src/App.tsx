@@ -12,7 +12,8 @@ import {
 import { IonReactRouter } from '@ionic/react-router'
 import RegistroPage from './pages/RegistroPage'
 import LoginPage from './pages/LoginPage'
-import { AuthProvider, useAuth } from './context/AuthContext'
+import { AuthProvider } from './context/AuthContext'
+import { useAuth } from './context/useAuth'
 
 /* Core CSS required for Ionic components to work properly */
 import '@ionic/react/css/core.css'

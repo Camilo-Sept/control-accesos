@@ -12,8 +12,8 @@ export default function LoginPage() {
     return n && n.startsWith('/') ? n : '/dashboard'
   }, [searchParams])
 
-  const [email, setEmail] = useState('admin@impulso.com')
-  const [password, setPassword] = useState('CambiaEsto123!')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

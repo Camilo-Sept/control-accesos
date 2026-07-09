@@ -1,23 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { authService, type AuthRole, type AuthSession, type AuthUser } from '../services/authService'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { authService, type AuthSession } from '../services/authService'
 import { authStorage } from '../services/authStorage'
-
-type LoginInput = {
-  email: string
-  password: string
-}
-
-type AuthContextValue = {
-  isReady: boolean
-  isAuthenticated: boolean
-  token: string | null
-  user: AuthUser | null
-  role: AuthRole | null
-  login: (input: LoginInput) => Promise<void>
-  logout: () => Promise<void>
-}
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+import { AuthContext, type AuthContextValue, type LoginInput } from './authContextValue'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isReady, setIsReady] = useState(false)
@@ -61,14 +45,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-
-  if (!context) {
-    throw new Error('useAuth debe usarse dentro de AuthProvider')
-  }
-
-  return context
 }

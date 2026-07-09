@@ -1,9 +1,18 @@
-const rawApiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001'
+function requiredEnv(name: string, value?: string): string {
+  const normalized = value?.trim()
+  if (!normalized) {
+    throw new Error(`${name} es obligatorio para iniciar la app móvil.`)
+  }
+  return normalized
+}
+
+const rawApiBase = requiredEnv('VITE_API_BASE_URL', import.meta.env.VITE_API_BASE_URL)
 
 export const API_BASE = rawApiBase.replace(/\/+$/, '')
 
-export const TABLET_API_KEY =
-  import.meta.env.VITE_TABLET_API_KEY ?? 'API_KEY_DEL_DISPOSITIVO'
+export const TABLET_API_KEY = requiredEnv(
+  'VITE_TABLET_API_KEY',
+  import.meta.env.VITE_TABLET_API_KEY
+)
 
-export const DEVICE_ID =
-  import.meta.env.VITE_DEVICE_ID ?? 'tablet-puerta-1'
+export const DEVICE_ID = requiredEnv('VITE_DEVICE_ID', import.meta.env.VITE_DEVICE_ID)
